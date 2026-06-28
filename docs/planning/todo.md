@@ -1,0 +1,20 @@
+# ToDo
+
+Quick notes to ourselves — things to do, plan, or investigate. These are **not
+tasks** (no reference, branch, or gates). See [Ways of Working](../ways-of-working.md#todo-items)
+for how ToDos are captured and triaged.
+
+During planning, items here are promoted into proper tasks or dropped, and
+removed from this list once actioned.
+
+## Open
+
+- [2026-06-28] Draft the project roadmap and identify the first epics.
+- [2026-06-28] Decide the implementation repo(s): language, project structure, and how the shared docs↔code branch naming works in practice.
+- [2026-06-28] Define the metadata model: lore, characters, story arcs, scenes, timelines, revealed truths — entities, relationships, and how/where they are stored.
+- [2026-06-28] Design the character engine: how characters are empowered by LLMs (prompting, memory/context window, which model(s)) to act and converse in-character.
+- [2026-06-28] Design the scene flow: how the author sets up and directs a scene, and how characters engage with each other and the author within it.
+- [2026-06-28] Decide how the agent updates and maintains the metadata as scenes complete, including any author review/approval step before the model changes.
+- [2026-06-28] Decide the author-facing experience (interface) and the outputs the author receives (prose, scene transcript, the evolving world bible).
+- [2026-06-28] Research: Magpie Weaver architecture — review and summarise into docs (source URL to follow).
+- [2026-06-28] Research: deploying and running AI models for development and testing — review and summarise into docs (source URL to follow).
