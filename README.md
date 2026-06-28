@@ -32,6 +32,11 @@ The result is a narrative that stays internally consistent and continues to grow
 
 To give authors a tool that handles the bookkeeping of a complex narrative — keeping the world model accurate and up to date — so they can focus on directing an engaging, evolving story while the characters and world stay consistent.
 
+## Project documentation
+
+- [Ways of Working](docs/ways-of-working.md) — how we plan, spec, and build Magpie Weaver.
+- [Task Register](docs/planning/tasks.md) — traceability for all work.
+
 ---
 
 *This README is the high-level overview. As the project firms up, detailed topics (architecture, the metadata model, character engine, scene flow, roadmap) will move into their own documents within this package.*
