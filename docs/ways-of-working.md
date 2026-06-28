@@ -159,6 +159,17 @@ Two flows:
 - **Documentation / non-feature tasks** (setup, planning, research, techdebt):
   `Proposed → Ready → Done` (a single deliverable PR; no spec or tests gates).
 
+### Recording completion
+
+A task is marked **Done** as the **closing change of its final PR** — the
+register and the task file are updated to *Done* with their PR links, and merging
+that PR is what completes the task. The status therefore reads *Done* on the
+branch in the moment before merge; the merge realises it.
+
+For a feature task whose final gate is in the implementation repo, the *Done*
+update to the docs register is made as a brief closing change in the docs repo
+once the implementation PR is approved.
+
 ## Definition of Ready
 
 A task may start only when all of the following hold:

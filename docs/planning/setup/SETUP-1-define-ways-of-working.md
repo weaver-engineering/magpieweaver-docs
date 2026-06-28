@@ -7,7 +7,7 @@
 | Story / Epic | — (bootstrap)     |
 | Component(s) | —                 |
 | Branch       | `setup/SETUP-1`   |
-| Status       | Ready             |
+| Status       | Done              |
 | PRs          | #1                |
 
 ## Purpose

@@ -23,5 +23,5 @@ non-feature `Proposed → Ready → Done`.
 
 | Ref       | Title                  | Type     | Story / Epic | Component(s) | Status   | Branch            | PRs | File |
 |-----------|------------------------|----------|--------------|--------------|----------|-------------------|-----|------|
-| `SETUP-1` | Define ways of working | setup    | —            | —            | Ready    | `setup/SETUP-1`   | #1  | [file](setup/SETUP-1-define-ways-of-working.md) |
+| `SETUP-1` | Define ways of working | setup    | —            | —            | Done     | `setup/SETUP-1`   | #1  | [file](setup/SETUP-1-define-ways-of-working.md) |
 | `PLAN-1`  | Triage ToDos into roadmap and first epics | planning | — | — | Proposed | `planning/PLAN-1` | —   | [file](planning/PLAN-1-triage-todos.md) |
