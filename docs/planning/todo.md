@@ -16,3 +16,5 @@ removed from this list once actioned.
 - [2026-06-28] Design the scene flow: how the author sets up and directs a scene, and how characters engage with each other and the author within it.
 - [2026-06-28] Decide how the agent updates and maintains the metadata as scenes complete, including any author review/approval step before the model changes.
 - [2026-06-28] Decide the author-facing experience (interface) and the outputs the author receives (prose, scene transcript, the evolving world bible).
+- [2026-06-28] Research: Magpie Weaver architecture — review and summarise into docs (source URL to follow).
+- [2026-06-28] Research: deploying and running AI models for development and testing — review and summarise into docs (source URL to follow).

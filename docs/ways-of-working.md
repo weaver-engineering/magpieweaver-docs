@@ -55,11 +55,11 @@ Non-feature task types correspond to the branch roots below (e.g. `SETUP-`,
 - **Branch name = `<root>/<TaskRef>`**, and is **identical across repositories**
   (the docs repo and the relevant implementation repo use the same branch name
   for the same task).
-- Branch roots in use: `setup/`, `feature/`, `planning/`. Others may be added as
-  needed (e.g. `techdebt/`).
+- Branch roots in use: `setup/`, `feature/`, `planning/`, `research/`. Others may
+  be added as needed (e.g. `techdebt/`).
 
 Examples: `feature/E1-S2-T3`, `setup/SETUP-1`, `planning/PLAN-1`,
-`techdebt/TD-1`.
+`research/RES-1`, `techdebt/TD-1`.
 
 ## SMART tasks
 
@@ -147,6 +147,34 @@ quick notes to ourselves — things to do, plan, or investigate.
   (epic/story/task) or dropped — and removed from the list once actioned.
 - **Format.** Dated bullets, e.g.
   `- [2026-06-28] Investigate how scene state is persisted between sessions.`
+
+## Research workflow
+
+The project depends on research (e.g. into architecture, or running AI models).
+Research is captured as agreed fact *before* it informs any design, through its
+own lightweight flow:
+
+1. **ToDo `<Research>`.** A research need is recorded as a ToDo. The author
+   provides the source — typically a **URL** (e.g. a chat history).
+2. **Summarise into docs** *(a `research/` task)*. The agent reviews the source
+   and writes a faithful summary at `docs/research/<slug>.md`, on branch
+   `research/<TaskRef>`, and raises a PR. This is a **docs-only task with a
+   single review gate** (the summary PR). The author reviews and merges,
+   confirming we both agree the summary is correct — at which point the research
+   is a **statement of fact** the project may rely on.
+3. **Generate tasks.** With the research agreed, we discuss it and create
+   `planning/`/`feature/` tasks to update the roadmap, design, and specs. These
+   re-enter the standard workflow above.
+
+Conventions and principles:
+
+- **Branch root `research/`**, task references **`RES-<n>`** (e.g. `RES-1`).
+- Research summaries live at **`docs/research/<slug>.md`**.
+- **Summarise faithfully.** The summary captures what the source actually says;
+  anything ambiguous or inferred is flagged as such. Research (fact) is kept
+  separate from our decisions, which follow as tasks.
+- **Fetch caveat.** The agent can only read **public** source URLs. If a source
+  is private/authenticated, its content must be pasted in instead.
 
 ## Normal sequence vs. bootstrap
 
