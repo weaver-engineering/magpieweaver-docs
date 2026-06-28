@@ -25,3 +25,4 @@ non-feature `Proposed → Ready → Done`.
 |-----------|------------------------|----------|--------------|--------------|----------|-------------------|-----|------|
 | `SETUP-1` | Define ways of working | setup    | —            | —            | Done     | `setup/SETUP-1`   | #1  | [file](setup/SETUP-1-define-ways-of-working.md) |
 | `PLAN-1`  | Triage ToDos into roadmap and first epics | planning | — | — | Proposed | `planning/PLAN-1` | —   | [file](planning/PLAN-1-triage-todos.md) |
+| `RES-1`   | Summarise Magpie Weaver architecture research | research | — | — | Done | `research/RES-1` | _(this PR)_ | [file](research/RES-1-magpieweaver-architecture.md) |
