@@ -133,6 +133,32 @@ For each task:
 So every task passes through up to three review gates — **spec → failing tests →
 implementation** — and nothing proceeds until the prior gate is approved.
 
+## Task lifecycle
+
+A task's **status** records the last milestone it has reached. Status advances
+when the relevant PR is **approved and merged** — the act that completes a gate.
+There is no separate "in review" status: a task keeps its current status while a
+PR is open, and advances only when that PR is approved and merged.
+
+Statuses:
+
+- **Proposed** — identified, not yet fully defined.
+- **Ready** — defined and SMART, ready to be worked. A Ready task may still be
+  **blocked** by dependency tasks that must complete first (see SMART →
+  Actionable); it stays Ready, and may be in progress, until its first gate is
+  approved. Meeting the [Definition of Ready](#definition-of-ready) is what moves
+  a task from Proposed to Ready.
+- **Spec** *(features)* — the spec PR has been approved and merged.
+- **Tests** *(features)* — the failing-tests PR has been approved and merged.
+- **Done** — the final PR has been approved and merged: the implementation PR for
+  features, or the single deliverable PR for documentation / non-feature tasks.
+
+Two flows:
+
+- **Feature tasks:** `Proposed → Ready → Spec → Tests → Done`.
+- **Documentation / non-feature tasks** (setup, planning, research, techdebt):
+  `Proposed → Ready → Done` (a single deliverable PR; no spec or tests gates).
+
 ## Definition of Ready
 
 A task may start only when all of the following hold:

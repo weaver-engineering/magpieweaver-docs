@@ -7,15 +7,21 @@ task recorded here.
 
 ## Status legend
 
-- **Proposed** — defined, not yet started.
-- **Spec** — spec PR open or in review.
-- **Tests** — failing-tests review open or in review (implementation repo).
-- **Impl** — implementation review open or in review (implementation repo).
-- **Done** — all gates merged.
+Status records the last milestone reached; it advances when a PR is approved and
+merged. See [Ways of Working → Task lifecycle](../ways-of-working.md#task-lifecycle).
+
+- **Proposed** — identified, not yet fully defined.
+- **Ready** — defined and SMART, ready to be worked (may be blocked by dependency tasks).
+- **Spec** *(features)* — spec PR approved and merged.
+- **Tests** *(features)* — failing-tests PR approved and merged.
+- **Done** — final PR (implementation, or the single deliverable PR) approved and merged.
+
+Flows: features `Proposed → Ready → Spec → Tests → Done`; documentation /
+non-feature `Proposed → Ready → Done`.
 
 ## Tasks
 
 | Ref       | Title                  | Type     | Story / Epic | Component(s) | Status   | Branch            | PRs | File |
 |-----------|------------------------|----------|--------------|--------------|----------|-------------------|-----|------|
-| `SETUP-1` | Define ways of working | setup    | —            | —            | Spec     | `setup/SETUP-1`   | #1  | [file](setup/SETUP-1-define-ways-of-working.md) |
+| `SETUP-1` | Define ways of working | setup    | —            | —            | Ready    | `setup/SETUP-1`   | #1  | [file](setup/SETUP-1-define-ways-of-working.md) |
 | `PLAN-1`  | Triage ToDos into roadmap and first epics | planning | — | — | Proposed | `planning/PLAN-1` | —   | [file](planning/PLAN-1-triage-todos.md) |
