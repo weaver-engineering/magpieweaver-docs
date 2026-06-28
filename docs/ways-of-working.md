@@ -35,6 +35,37 @@ Roadmap (top-level plan)
 Planning is itself work: a `planning/` task produces epics, breaks an epic into
 stories, and breaks stories into tasks. Planning happens before building.
 
+## Planning documents
+
+Because tasks are granular and numerous, **every epic, story, and task is its own
+file**, and the **directory path mirrors the planning hierarchy**. Filenames carry
+the **full reference**, so a file is unambiguous when opened on its own.
+
+```
+docs/planning/
+  roadmap.md                          top-level plan; links to each epic
+  todo.md                             scratch list of ToDos
+  tasks.md                            register/index: every task, status, link to its file
+  epics/
+    E1-<slug>/
+      E1-<slug>.md                    epic definition + sub-plan (its stories)
+      E1-S1-<slug>/
+        E1-S1-<slug>.md               story definition + its tasks
+        E1-S1-T1-<slug>.md            task file
+        E1-S1-T2-<slug>.md
+  setup/    SETUP-1-<slug>.md         non-feature task files, foldered by branch root
+  planning/ PLAN-1-<slug>.md
+  research/ RES-1-<slug>.md           the research *task* (its summary lives in docs/research/)
+  techdebt/ TD-1-<slug>.md
+```
+
+- **Feature work** lives under `epics/` so the path encodes epic → story → task.
+  The epic and story each have a document at their own level.
+- **Non-feature tasks** have no epic/story parent, so they are foldered by their
+  **branch root** (`setup/`, `planning/`, `research/`, `techdebt/`).
+- A **research task** file documents the work item; the research **summary**
+  deliverable still lives at `docs/research/<slug>.md` (see Research workflow).
+
 ## Task references
 
 Every task has a self-describing reference so any branch traces up to its story,
@@ -186,6 +217,8 @@ Conventions and principles:
 
 ## Task register
 
-All tasks are recorded in [`docs/planning/tasks.md`](planning/tasks.md), the
-single source of traceability: reference, title, type, parent story/epic,
-affected component(s), status, branch, and PR links.
+[`docs/planning/tasks.md`](planning/tasks.md) is the register/index — the single
+at-a-glance view of all work. Each row gives a task's reference, title, type,
+parent story/epic, affected component(s), status, branch, and PR links, and
+**links to the task's own file** (see Planning documents). The detail lives in
+the task file; the register is the index over them.
