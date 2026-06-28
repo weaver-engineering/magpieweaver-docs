@@ -61,6 +61,22 @@ Non-feature task types correspond to the branch roots below (e.g. `SETUP-`,
 Examples: `feature/E1-S2-T3`, `setup/SETUP-1`, `planning/PLAN-1`,
 `techdebt/TD-1`.
 
+## SMART tasks
+
+Every task must be **SMART** before it is Ready. For Magpie Weaver, SMART means:
+
+- **S — Steps.** The task is broken down into the concrete steps required to
+  complete it.
+- **M — Measurable.** We have defined how we will measure that the task is done.
+  A task is not Ready until its measure of done is defined.
+- **A — Actionable.** We can start the task immediately, *or* we know exactly
+  which tasks, stories, or epics must be complete before it becomes actionable.
+  Dependencies are explicit.
+- **R — Realistic.** The task has a realistically achievable outcome.
+- **T — Time limited.** The task has an estimated duration. A task whose
+  duration is too long must be split into smaller tasks, each sensibly
+  completable in a single PR.
+
 ## Specs
 
 - **Specs are per component.** Each component has one living spec at
@@ -93,9 +109,10 @@ A task may start only when all of the following hold:
 - It is recorded in the [task register](planning/tasks.md) with a reference.
 - Feature tasks are linked to a parent story (and therefore an epic);
   non-feature tasks state their rationale.
-- Its outcome is **SMART**, with explicit **acceptance criteria**.
+- It satisfies the [SMART criteria](#smart-tasks) — steps, measure of done,
+  actionability, a realistic outcome, and an estimated duration that fits a
+  single PR.
 - The affected component(s) are identified.
-- Its dependencies are known and not blocking.
 - It has been discussed and is understood.
 
 ## Definition of Done
