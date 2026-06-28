@@ -86,6 +86,51 @@ For each task:
 So every task passes through up to three review gates — **spec → failing tests →
 implementation** — and nothing proceeds until the prior gate is approved.
 
+## Definition of Ready
+
+A task may start only when all of the following hold:
+
+- It is recorded in the [task register](planning/tasks.md) with a reference.
+- Feature tasks are linked to a parent story (and therefore an epic);
+  non-feature tasks state their rationale.
+- Its outcome is **SMART**, with explicit **acceptance criteria**.
+- The affected component(s) are identified.
+- Its dependencies are known and not blocking.
+- It has been discussed and is understood.
+
+## Definition of Done
+
+A task is done only when all relevant gates and conditions are satisfied:
+
+- **Spec gate** — the affected component spec(s) are created/updated and the
+  spec PR is merged.
+- **Tests gate** — the failing test definitions are reviewed and merged.
+- **Implementation gate** — the code makes the tests pass, the full suite is
+  green, and the implementation PR is merged.
+- The **acceptance criteria** are demonstrably met.
+- The [task register](planning/tasks.md) is updated to *Done* with all PR links.
+- Any documentation impacted by the change is updated.
+
+Gates apply **as relevant to the task type**. A `setup/`, `planning/`, or other
+docs-only task has no tests or implementation gates, so its Definition of Done
+is simply: the deliverable is merged and the task register is updated.
+
+## ToDo items
+
+A running scratch list at [`docs/planning/todo.md`](planning/todo.md) captures
+quick notes to ourselves — things to do, plan, or investigate.
+
+- **ToDos are not tasks.** They have no reference, branch, or gates, and carry
+  no commitment.
+- **ToDos are still captured under a task.** They typically arise while working
+  a task — e.g. during discussion we identify something else that needs doing.
+  The edit to `todo.md` is committed on that task's branch and included in its
+  PR, so the rule that every change links to a task holds with no exception.
+- **Lifecycle.** During planning, ToDos are triaged — promoted into proper tasks
+  (epic/story/task) or dropped — and removed from the list once actioned.
+- **Format.** Dated bullets, e.g.
+  `- [2026-06-28] Investigate how scene state is persisted between sessions.`
+
 ## Normal sequence vs. bootstrap
 
 - **Normal:** a `planning/` PR defines and gets approval for the next SMART

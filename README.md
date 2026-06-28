@@ -36,6 +36,7 @@ To give authors a tool that handles the bookkeeping of a complex narrative — k
 
 - [Ways of Working](docs/ways-of-working.md) — how we plan, spec, and build Magpie Weaver.
 - [Task Register](docs/planning/tasks.md) — traceability for all work.
+- [ToDo](docs/planning/todo.md) — running scratch list of things to do, plan, or investigate.
 
 ---
 
