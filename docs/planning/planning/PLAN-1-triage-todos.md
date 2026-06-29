@@ -6,6 +6,7 @@
 | Type         | planning           |
 | Story / Epic | —                  |
 | Component(s) | —                  |
+| Depends on   | —                  |
 | Branch       | `planning/PLAN-1`  |
 | Status       | Proposed           |
 | PRs          | —                  |

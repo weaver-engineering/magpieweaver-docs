@@ -135,19 +135,25 @@ implementation** — and nothing proceeds until the prior gate is approved.
 
 ## Task lifecycle
 
-A task's **status** records the last milestone it has reached. Status advances
-when the relevant PR is **approved and merged** — the act that completes a gate.
-There is no separate "in review" status: a task keeps its current status while a
-PR is open, and advances only when that PR is approved and merged.
+A task's **status** records the furthest point it has reached. Most transitions
+happen when a gate PR is **approved and merged** (the act that completes a gate);
+the exception is `Ready → In Progress`, which happens when work begins. There is
+no separate "in review" status: a task keeps its current status while a gate PR is
+open, and advances only when that PR is approved and merged.
 
 Statuses:
 
 - **Proposed** — identified, not yet fully defined.
-- **Ready** — defined and SMART, ready to be worked. A Ready task may still be
-  **blocked** by dependency tasks that must complete first (see SMART →
-  Actionable); it stays Ready, and may be in progress, until its first gate is
-  approved. Meeting the [Definition of Ready](#definition-of-ready) is what moves
-  a task from Proposed to Ready.
+- **Ready** — defined and SMART, ready to be worked, but **not yet started**.
+  Meeting the [Definition of Ready](#definition-of-ready) is what moves a task
+  from Proposed to Ready. A Ready task may be **blocked** by dependency tasks
+  that must complete first (see SMART → Actionable).
+- **In Progress** — work has started. In this state we may commit changes to the
+  task's **own record** — refined understanding, design notes, and any
+  **newly discovered dependencies** — under the task's own reference, before it
+  reaches its next milestone (Spec for features, Done for documentation /
+  non-feature tasks). An In Progress task may also be **blocked** (see
+  [Discovering dependencies mid-task](#discovering-dependencies-mid-task)).
 - **Spec** *(features)* — the spec PR has been approved and merged.
 - **Tests** *(features)* — the failing-tests PR has been approved and merged.
 - **Done** — the final PR has been approved and merged: the implementation PR for
@@ -155,9 +161,38 @@ Statuses:
 
 Two flows:
 
-- **Feature tasks:** `Proposed → Ready → Spec → Tests → Done`.
+- **Feature tasks:** `Proposed → Ready → In Progress → Spec → Tests → Done`.
 - **Documentation / non-feature tasks** (setup, planning, research, techdebt):
-  `Proposed → Ready → Done` (a single deliverable PR; no spec or tests gates).
+  `Proposed → Ready → In Progress → Done` (no spec or tests gates).
+
+**Blocked** is an attribute, not a status: a `Ready` or `In Progress` task is
+blocked while it has dependency tasks that are not yet `Done`. Record the
+dependency and reason in the task file, and note it in the register status cell
+(e.g. *In Progress — blocked by `RES-3`*).
+
+A task may have **more than one PR** over its life. While `In Progress`, an
+intermediate PR (on the task's own branch) may update the task's record or add
+dependencies **without completing the task**; the gate PRs (Spec / Tests / Done)
+advance the status.
+
+### Discovering dependencies mid-task
+
+While working a task we may realise another task must be completed before the
+current one can finish — we simply hadn't understood the dependency up front.
+Because no repo change is allowed without a task reference, and the discovery was
+made while working the current task, the change is recorded **under the current
+task's reference**:
+
+1. **Create the new dependency task** (e.g. a `research/` or `feature/` task) in
+   the planning structure, starting at **Proposed**.
+2. **Update the current task's record** — set it to **In Progress**, add the new
+   task as a dependency (the current task is now **blocked** by it), and explain
+   **why** the dependency is needed (refined understanding, changed design, etc.).
+3. **Commit via the normal branch + PR flow** on the current task's branch.
+   Merging this updates our shared understanding **without** completing the
+   current task.
+4. **Work the dependency task** through to **Done**, which unblocks the current
+   task; then resume it.
 
 ### Recording completion
 
@@ -248,9 +283,13 @@ Conventions and principles:
 
 - **Normal:** a `planning/` PR defines and gets approval for the next SMART
   tasks; a subsequent `feature/` PR delivers a task.
-- **Bootstrap exception:** when there is no prior planning PR to define a task
-  (as when first establishing the project), the task may be defined within its
-  own PR. `SETUP-1` ("Define ways of working") is defined this way.
+- **Process tasks defined in their own PR:** tasks that do **not** arise from
+  roadmap planning — `setup/` and `techdebt/` tasks, and the original bootstrap —
+  may be defined within their own PR. This is the same path `SETUP-1` ("Define
+  ways of working") and `SETUP-2` followed.
+- **Mid-task discovery:** a dependency task discovered while working another task
+  is created under that task's reference (see
+  [Discovering dependencies mid-task](#discovering-dependencies-mid-task)).
 
 ## Task register
 
