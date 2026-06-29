@@ -8,8 +8,8 @@
 | Component(s) | —                  |
 | Depends on   | `RES-1`, `RES-2`   |
 | Branch       | `planning/PLAN-1`  |
-| Status       | In Progress        |
-| PRs          | —                  |
+| Status       | Done               |
+| PRs          | #5                 |
 
 ## Purpose
 
@@ -32,8 +32,8 @@ SMART tasks when picked up.
 1. Annotate open ToDos with their actioning epic/task. ✓
 2. Write `docs/planning/roadmap.md` with all five epics. ✓
 3. Create `PLAN-2` through `PLAN-6` task files and register them in `tasks.md`.
-4. Update `tasks.md` — set `PLAN-1` to *Done* with PR link.
-5. Raise the PR.
+4. Update `tasks.md` — set `PLAN-1` to *Done* with PR link. ✓
+5. Raise the PR. ✓
 
 ## Measure of done
 

@@ -29,7 +29,7 @@ documentation / non-feature `Proposed → Ready → In Progress → Done`.
 |-----------|------------------------|----------|--------------|--------------|----------|-------------------|-----|------|
 | `SETUP-1` | Define ways of working | setup    | —            | —            | Done     | `setup/SETUP-1`   | #1  | [file](setup/SETUP-1-define-ways-of-working.md) |
 | `SETUP-2` | Add In Progress state and mid-task dependency handling | setup | — | — | Done | `setup/SETUP-2` | _(this PR)_ | [file](setup/SETUP-2-in-progress-state-and-dependencies.md) |
-| `PLAN-1`  | Triage ToDos into roadmap and first epics | planning | — | — | In Progress | `planning/PLAN-1` | —   | [file](planning/PLAN-1-triage-todos.md) |
+| `PLAN-1`  | Triage ToDos into roadmap and first epics | planning | — | — | Done | `planning/PLAN-1` | #5  | [file](planning/PLAN-1-triage-todos.md) |
 | `PLAN-2`  | Plan E1 — Architecture & HLD | planning | — | — | Proposed | `planning/PLAN-2` | — | [file](planning/PLAN-2-plan-e1-architecture-hld.md) |
 | `PLAN-3`  | Plan E2 — Hello World Prototype | planning | — | — | Proposed | `planning/PLAN-3` | — | [file](planning/PLAN-3-plan-e2-hello-world-prototype.md) |
 | `PLAN-4`  | Plan E3 — Stand up LLM | planning | — | — | Proposed | `planning/PLAN-4` | — | [file](planning/PLAN-4-plan-e3-stand-up-llm.md) |
