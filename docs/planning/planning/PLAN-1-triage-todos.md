@@ -6,30 +6,43 @@
 | Type         | planning           |
 | Story / Epic | —                  |
 | Component(s) | —                  |
-| Depends on   | —                  |
+| Depends on   | `RES-1`, `RES-2`   |
 | Branch       | `planning/PLAN-1`  |
-| Status       | Proposed           |
+| Status       | In Progress        |
 | PRs          | —                  |
 
 ## Purpose
 
 Take the open items in [`todo.md`](../todo.md) and turn them into a real plan:
-draft the top-level roadmap, identify the first epics, and break the most
-immediate epic(s) into stories and SMART tasks.
+draft the top-level roadmap, identify the five epics, and create the planning
+tasks (`PLAN-2` through `PLAN-6`) that will break each epic into stories and
+SMART tasks when picked up.
 
 ## Scope / deliverables
 
-- `docs/planning/roadmap.md` — top-level plan listing the epics.
-- `docs/planning/epics/E1-<slug>/…` — the first epic(s), with their stories and
-  initial tasks documented in the planning structure.
+- `docs/planning/roadmap.md` — top-level plan listing all five epics in
+  sequence, each with a description and end state.
+- `docs/planning/planning/PLAN-2` through `PLAN-6` — one planning task per
+  epic, recorded in the task register as Proposed.
+- `docs/planning/todo.md` — open ToDos annotated with the epic or task that
+  will action them.
+
+## Steps
+
+1. Annotate open ToDos with their actioning epic/task. ✓
+2. Write `docs/planning/roadmap.md` with all five epics. ✓
+3. Create `PLAN-2` through `PLAN-6` task files and register them in `tasks.md`.
+4. Update `tasks.md` — set `PLAN-1` to *Done* with PR link.
+5. Raise the PR.
 
 ## Measure of done
 
-A roadmap exists listing the epics, and at least the first epic is broken down
-into stories and SMART (Ready) tasks recorded in the task register.
+- `docs/planning/roadmap.md` exists and lists all five epics with descriptions
+  and end states.
+- `PLAN-2` through `PLAN-6` are recorded as Proposed in the task register.
+- Open ToDos are annotated with their actioning epic/task.
+- Task register shows `PLAN-1` as Done with a PR link.
 
-## Notes
+## Estimated duration
 
-To be made **Ready** (fully SMART) when picked up. Likely informed by the two
-research ToDos (architecture; running AI models for dev/testing) once those have
-been summarised and agreed.
+Half a day (single PR).
