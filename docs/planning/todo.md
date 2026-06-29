@@ -16,6 +16,6 @@ removed from this list once actioned.
 - [2026-06-28] Design the scene flow: how the author sets up and directs a scene, and how characters engage with each other and the author within it.
 - [2026-06-28] Decide how the agent updates and maintains the metadata as scenes complete, including any author review/approval step before the model changes.
 - [2026-06-28] Decide the author-facing experience (interface) and the outputs the author receives (prose, scene transcript, the evolving world bible).
-- [2026-06-28] Research: deploying and running AI models for development and testing — review and summarise into docs (source URL to follow).
-
 _(The Magpie Weaver architecture research ToDo was promoted to task `RES-1` and summarised in [`docs/research/magpieweaver-architecture.md`](../research/magpieweaver-architecture.md).)_
+
+_(The "running and training AI models" research ToDo was promoted to task `RES-2` and summarised in [`docs/research/running-and-training-llms.md`](../research/running-and-training-llms.md).)_
