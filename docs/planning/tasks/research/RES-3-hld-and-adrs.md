@@ -5,11 +5,11 @@
 | Reference    | `RES-3`                                    |
 | Type         | research                                   |
 | Story / Epic | —                                          |
-| Output(s)    | `docs/research/hld-and-adrs.md`            |
+| Output(s)    | [hld-and-adrs.md](../../../research/hld-and-adrs.md) |
 | Depends on   | —                                          |
 | Branch       | `research/RES-3`                           |
-| Status       | Ready                                      |
-| PRs          | —                                          |
+| Status       | Done                                       |
+| PRs          | #9                                         |
 
 ## Purpose
 
