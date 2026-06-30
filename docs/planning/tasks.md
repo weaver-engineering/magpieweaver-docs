@@ -31,7 +31,9 @@ documentation / non-feature `Proposed → Ready → In Progress → Done`.
 | `SETUP-2` | Add In Progress state and mid-task dependency handling | setup | — | [ways-of-working.md](../ways-of-working.md) | Done | `setup/SETUP-2` | #4 | [file](tasks/setup/SETUP-2-in-progress-state-and-dependencies.md) |
 | `SETUP-3` | Google Drive research handoff | setup | — | [ways-of-working.md](../ways-of-working.md) | Done | `setup/SETUP-3` | #6 | [file](tasks/setup/SETUP-3-google-drive-research-handoff.md) |
 | `PLAN-1`  | Triage ToDos into roadmap and first epics | planning | — | [roadmap.md](plans/roadmap.md) | Done | `planning/PLAN-1` | #5 | [file](tasks/planning/PLAN-1-triage-todos.md) |
-| `PLAN-2`  | Plan E1 — Architecture & HLD | planning | — | — | In Progress | `planning/PLAN-2` | #8 | [file](tasks/planning/PLAN-2-plan-e1-architecture-hld.md) |
+| `PLAN-2`  | Plan E1 — Architecture & HLD | planning | — | [E1-architecture-hld.md](tasks/epics/E1-architecture-hld/E1-architecture-hld.md) | Done | `planning/PLAN-2` | #8, #11 | [file](tasks/planning/PLAN-2-plan-e1-architecture-hld.md) |
+| `E1-S1-T1` | Monorepo layout specification | feature | `E1-S1` / `E1` | `docs/specs/monorepo-layout.md` | Ready | `feature/E1-S1-T1` | — | [file](tasks/epics/E1-architecture-hld/E1-S1-monorepo-scaffolding/E1-S1-T1-monorepo-layout-spec.md) |
+| `E1-S1-T2` | Workspace initialization | feature | `E1-S1` / `E1` | `magpie-weaver/` scaffold | Ready | `feature/E1-S1-T2` | — | [file](tasks/epics/E1-architecture-hld/E1-S1-monorepo-scaffolding/E1-S1-T2-workspace-init.md) |
 | `PLAN-3`  | Plan E2 — Hello World Prototype | planning | — | — | Proposed | `planning/PLAN-3` | — | [file](tasks/planning/PLAN-3-plan-e2-hello-world-prototype.md) |
 | `PLAN-4`  | Plan E3 — Stand up LLM | planning | — | — | Proposed | `planning/PLAN-4` | — | [file](tasks/planning/PLAN-4-plan-e3-stand-up-llm.md) |
 | `PLAN-5`  | Plan E4 — Git-backed file store | planning | — | — | Proposed | `planning/PLAN-5` | — | [file](tasks/planning/PLAN-5-plan-e4-git-backed-file-store.md) |
