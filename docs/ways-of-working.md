@@ -43,20 +43,22 @@ the **full reference**, so a file is unambiguous when opened on its own.
 
 ```
 docs/planning/
-  roadmap.md                          top-level plan; links to each epic
+  plans/
+    roadmap.md                        top-level plan; links to each epic
   todo.md                             scratch list of ToDos
   tasks.md                            register/index: every task, status, link to its file
-  epics/
-    E1-<slug>/
-      E1-<slug>.md                    epic definition + sub-plan (its stories)
-      E1-S1-<slug>/
-        E1-S1-<slug>.md               story definition + its tasks
-        E1-S1-T1-<slug>.md            task file
-        E1-S1-T2-<slug>.md
-  setup/    SETUP-1-<slug>.md         non-feature task files, foldered by branch root
-  planning/ PLAN-1-<slug>.md
-  research/ RES-1-<slug>.md           the research *task* (its summary lives in docs/research/)
-  techdebt/ TD-1-<slug>.md
+  tasks/
+    epics/
+      E1-<slug>/
+        E1-<slug>.md                  epic definition + sub-plan (its stories)
+        E1-S1-<slug>/
+          E1-S1-<slug>.md             story definition + its tasks
+          E1-S1-T1-<slug>.md          task file
+          E1-S1-T2-<slug>.md
+    setup/    SETUP-1-<slug>.md       non-feature task files, foldered by branch root
+    planning/ PLAN-1-<slug>.md
+    research/ RES-1-<slug>.md         the research *task* (its summary lives in docs/research/)
+    tech-debt/ TD-1-<slug>.md
 ```
 
 - **Feature work** lives under `epics/` so the path encodes epic → story → task.
@@ -86,7 +88,7 @@ Non-feature task types correspond to the branch roots below (e.g. `SETUP-`,
 - **Branch name = `<root>/<TaskRef>`**, and is **identical across repositories**
   (the docs repo and the relevant implementation repo use the same branch name
   for the same task).
-- Branch roots in use: `setup/`, `feature/`, `planning/`, `research/`. Others may
+- Branch roots in use: `setup/`, `feature/`, `planning/`, `research/`, `techdebt/`.
   be added as needed (e.g. `techdebt/`).
 
 Examples: `feature/E1-S2-T3`, `setup/SETUP-1`, `planning/PLAN-1`,
@@ -204,6 +206,21 @@ branch in the moment before merge; the merge realises it.
 For a feature task whose final gate is in the implementation repo, the *Done*
 update to the docs register is made as a brief closing change in the docs repo
 once the implementation PR is approved.
+
+### Commit conventions
+
+**One commit per status transition.** Each gate PR should land as a single,
+self-contained commit that advances the task to its next status:
+
+- A **Proposed → Ready** change (making a task SMART) is one commit.
+- An **In Progress** intermediate update (e.g. adding a discovered dependency)
+  is one commit.
+- Each gate commit (**Spec**, **Tests**, **Done**) is one commit.
+
+Work-in-progress commits made while completing a gate should be **squashed**
+before the PR is merged, so the branch history reads as one clean commit per
+status reached. Use `git reset --soft <base>` and recommit, then
+`git push --force-with-lease`.
 
 ## Definition of Ready
 

@@ -5,7 +5,7 @@
 | Reference    | `SETUP-1`         |
 | Type         | setup             |
 | Story / Epic | — (bootstrap)     |
-| Component(s) | —                 |
+| Output(s)    | —                 |
 | Branch       | `setup/SETUP-1`   |
 | Status       | Done              |
 | PRs          | #1                |
@@ -13,7 +13,7 @@
 ## Purpose
 
 Establish the project's spec-driven AI development process and record it
-authoritatively in [`docs/ways-of-working.md`](../../ways-of-working.md).
+authoritatively in [`docs/ways-of-working.md`](../../../ways-of-working.md).
 
 This is the **bootstrap** task: with no prior `planning/` PR to define it, it is
 defined within its own PR.

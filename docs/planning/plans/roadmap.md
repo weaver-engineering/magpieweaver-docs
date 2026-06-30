@@ -5,14 +5,14 @@ each is planned in detail by its own `PLAN-` task before it starts.
 
 ## Epics
 
-| Ref  | Epic                      | Status   | Planning task | File |
+| Ref  | Epic                      | Status   | Planning task | Plan |
 |------|---------------------------|----------|---------------|------|
-| `E1` | Architecture & HLD        | Proposed | `PLAN-2`      | —    |
-| `E2` | Hello World Prototype     | Proposed | `PLAN-3`      | —    |
-| `E3` | Stand up LLM              | Proposed | `PLAN-4`      | —    |
-| `E4` | Git-backed file store     | Proposed | `PLAN-5`      | —    |
-| `E5` | Minimum Product           | Proposed | `PLAN-6`      | —    |
-| `E6` | MVP                       | Proposed | `PLAN-7`      | —    |
+| `E1` | Architecture & HLD        | Proposed | [`PLAN-2`](../tasks/planning/PLAN-2-plan-e1-architecture-hld.md) | — |
+| `E2` | Hello World Prototype     | Proposed | [`PLAN-3`](../tasks/planning/PLAN-3-plan-e2-hello-world-prototype.md) | — |
+| `E3` | Stand up LLM              | Proposed | [`PLAN-4`](../tasks/planning/PLAN-4-plan-e3-stand-up-llm.md) | — |
+| `E4` | Git-backed file store     | Proposed | [`PLAN-5`](../tasks/planning/PLAN-5-plan-e4-git-backed-file-store.md) | — |
+| `E5` | Minimum Product           | Proposed | [`PLAN-6`](../tasks/planning/PLAN-6-plan-e5-minimum-product.md) | — |
+| `E6` | MVP                       | Proposed | [`PLAN-7`](../tasks/planning/PLAN-7-plan-e6-mvp.md) | — |
 
 ---
 

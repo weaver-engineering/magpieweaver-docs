@@ -5,7 +5,7 @@
 | Reference    | `RES-1`                            |
 | Type         | research                           |
 | Story / Epic | —                                  |
-| Component(s) | —                                  |
+| Output(s)    | —                                  |
 | Branch       | `research/RES-1`                   |
 | Status       | Done                               |
 | PRs          | _(this PR)_                        |
@@ -24,7 +24,7 @@ the author as pasted text across twelve sections.
 
 ## Deliverable
 
-- [`docs/research/magpieweaver-architecture.md`](../../research/magpieweaver-architecture.md)
+- [`docs/research/magpieweaver-architecture.md`](../../../research/magpieweaver-architecture.md)
   — the faithful summary, with our reservations kept separate from the research.
 
 ## Measure of done

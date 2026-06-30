@@ -5,7 +5,7 @@
 | Reference    | `RES-2`                        |
 | Type         | research                       |
 | Story / Epic | —                              |
-| Component(s) | —                              |
+| Output(s)    | —                              |
 | Branch       | `research/RES-2`               |
 | Status       | Done                           |
 | PRs          | _(this PR)_                    |
@@ -24,7 +24,7 @@ pasted text across five sections.
 
 ## Deliverable
 
-- [`docs/research/running-and-training-llms.md`](../../research/running-and-training-llms.md)
+- [`docs/research/running-and-training-llms.md`](../../../research/running-and-training-llms.md)
   — the faithful summary, with our stance kept separate from the research.
 
 ## Measure of done

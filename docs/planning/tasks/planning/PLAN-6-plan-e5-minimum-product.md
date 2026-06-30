@@ -5,7 +5,7 @@
 | Reference    | `PLAN-6`                 |
 | Type         | planning                 |
 | Story / Epic | —                        |
-| Component(s) | —                        |
+| Output(s)    | —                        |
 | Depends on   | `PLAN-5`                 |
 | Branch       | `planning/PLAN-6`        |
 | Status       | Proposed                 |
