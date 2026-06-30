@@ -37,7 +37,7 @@ documentation / non-feature `Proposed → Ready → In Progress → Done`.
 | `PLAN-5`  | Plan E4 — Git-backed file store | planning | — | — | Proposed | `planning/PLAN-5` | — | [file](tasks/planning/PLAN-5-plan-e4-git-backed-file-store.md) |
 | `PLAN-6`  | Plan E5 — Minimum Product | planning | — | — | Proposed | `planning/PLAN-6` | — | [file](tasks/planning/PLAN-6-plan-e5-minimum-product.md) |
 | `PLAN-7`  | Plan E6 — MVP | planning | — | — | Proposed | `planning/PLAN-7` | — | [file](tasks/planning/PLAN-7-plan-e6-mvp.md) |
-| `RES-3`   | HLD and Architectural Decision Records | research | — | `docs/research/hld-and-adrs.md` | Ready | `research/RES-3` | — | [file](tasks/research/RES-3-hld-and-adrs.md) |
+| `RES-3`   | HLD and Architectural Decision Records | research | — | [hld-and-adrs.md](../research/hld-and-adrs.md) | Done | `research/RES-3` | #9 | [file](tasks/research/RES-3-hld-and-adrs.md) |
 | `RES-4`   | E1 Sub Plan | research | — | `docs/research/e1-sub-plan.md` | Ready | `research/RES-4` | — | [file](tasks/research/RES-4-e1-sub-plan.md) |
 | `RES-1`   | Summarise Magpie Weaver architecture research | research | — | [magpieweaver-architecture.md](../research/magpieweaver-architecture.md) | Done | `research/RES-1` | #2 | [file](tasks/research/RES-1-magpieweaver-architecture.md) |
 | `RES-2`   | Summarise research on running and training LLMs cheaply | research | — | [running-and-training-llms.md](../research/running-and-training-llms.md) | Done | `research/RES-2` | #3 | [file](tasks/research/RES-2-running-and-training-llms.md) |
