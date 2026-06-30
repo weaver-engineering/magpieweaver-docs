@@ -1,15 +1,15 @@
 # PLAN-2 — Plan E1: Architecture & HLD
 
-| Field        | Value                    |
-|--------------|--------------------------|
-| Reference    | `PLAN-2`                 |
-| Type         | planning                 |
-| Story / Epic | —                        |
-| Output(s)    | —                        |
-| Depends on   | `PLAN-1`                 |
-| Branch       | `planning/PLAN-2`        |
-| Status       | Proposed                 |
-| PRs          | —                        |
+| Field        | Value                                      |
+|--------------|--------------------------------------------|
+| Reference    | `PLAN-2`                                   |
+| Type         | planning                                   |
+| Story / Epic | —                                          |
+| Output(s)    | —                                          |
+| Depends on   | `RES-3`, `RES-4`                           |
+| Branch       | `planning/PLAN-2`                          |
+| Status       | In Progress — blocked by `RES-3`, `RES-4` |
+| PRs          | —                                          |
 
 ## Purpose
 
@@ -21,6 +21,10 @@ worked. Produces the epic sub-plan and the first set of Ready tasks under E1.
 `E1` is documented with its stories and at least the first story's tasks are
 SMART and recorded as Ready in the task register.
 
-## Notes
+## Dependencies
 
-To be made **Ready** (fully SMART) when picked up, after `PLAN-1` is Done.
+- **`RES-3` — HLD and Architectural Decision Records:** research on the
+  high-level design and ADRs for Magpie Weaver, needed to inform the E1
+  stories and tasks.
+- **`RES-4` — E1 Sub Plan:** research on the proposed E1 sub-plan, needed
+  to define the stories and SMART tasks for E1.
