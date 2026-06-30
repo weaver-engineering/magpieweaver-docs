@@ -9,7 +9,6 @@ removed from this list once actioned.
 
 ## Open
 
-- [2026-06-28] Draft the project roadmap and identify the first epics. *(→ `PLAN-1`)*
 - [2026-06-28] Decide the implementation repo(s): language, project structure, and how the shared docs↔code branch naming works in practice. *(→ `E1` Architecture & HLD)*
 - [2026-06-28] Define the metadata model: lore, characters, story arcs, scenes, timelines, revealed truths — entities, relationships, and how/where they are stored. *(→ `E5` MVP)*
 - [2026-06-28] Design the character engine: how characters are empowered by LLMs (prompting, memory/context window, which model(s)) to act and converse in-character. *(→ `E5` MVP)*

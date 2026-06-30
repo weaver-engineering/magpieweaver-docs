@@ -5,7 +5,7 @@
 | Reference    | `PLAN-1`           |
 | Type         | planning           |
 | Story / Epic | —                  |
-| Component(s) | —                  |
+| Output(s)    | —                  |
 | Depends on   | `RES-1`, `RES-2`   |
 | Branch       | `planning/PLAN-1`  |
 | Status       | Done               |
@@ -13,7 +13,7 @@
 
 ## Purpose
 
-Take the open items in [`todo.md`](../todo.md) and turn them into a real plan:
+Take the open items in [`todo.md`](../../todo.md) and turn them into a real plan:
 draft the top-level roadmap, identify the five epics, and create the planning
 tasks (`PLAN-2` through `PLAN-6`) that will break each epic into stories and
 SMART tasks when picked up.

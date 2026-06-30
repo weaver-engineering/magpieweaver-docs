@@ -5,7 +5,7 @@
 | Reference    | `SETUP-2`                                         |
 | Type         | setup                                            |
 | Story / Epic | —                                                |
-| Component(s) | —                                                |
+| Output(s)    | —                                                |
 | Depends on   | —                                                |
 | Branch       | `setup/SETUP-2`                                  |
 | Status       | Done                                             |
