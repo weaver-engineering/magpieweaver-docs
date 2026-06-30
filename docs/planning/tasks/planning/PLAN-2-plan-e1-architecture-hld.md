@@ -8,7 +8,7 @@
 | Output(s)    | —                                          |
 | Depends on   | `RES-3`, `RES-4`                           |
 | Branch       | `planning/PLAN-2`                          |
-| Status       | In Progress — blocked by `RES-3`, `RES-4` |
+| Status       | In Progress                               |
 | PRs          | —                                          |
 
 ## Purpose

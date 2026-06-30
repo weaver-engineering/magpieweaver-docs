@@ -5,11 +5,11 @@
 | Reference    | `RES-4`                                    |
 | Type         | research                                   |
 | Story / Epic | —                                          |
-| Output(s)    | `docs/research/e1-sub-plan.md`             |
+| Output(s)    | [e1-sub-plan.md](../../../research/e1-sub-plan.md) |
 | Depends on   | —                                          |
 | Branch       | `research/RES-4`                           |
-| Status       | Ready                                      |
-| PRs          | —                                          |
+| Status       | Done                                       |
+| PRs          | #10                                        |
 
 ## Purpose
 
