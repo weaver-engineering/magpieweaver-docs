@@ -254,18 +254,27 @@ quick notes to ourselves — things to do, plan, or investigate.
 ## Research workflow
 
 The project depends on research (e.g. into architecture, or running AI models).
-Research is captured as agreed fact *before* it informs any design, through its
-own lightweight flow:
+Research is conducted in Google Gemini and captured as agreed fact *before* it
+informs any design, through its own lightweight flow:
 
-1. **ToDo `<Research>`.** A research need is recorded as a ToDo. The author
-   provides the source — typically a **URL** (e.g. a chat history).
-2. **Summarise into docs** *(a `research/` task)*. The agent reviews the source
-   and writes a faithful summary at `docs/research/<slug>.md`, on branch
-   `research/<TaskRef>`, and raises a PR. This is a **docs-only task with a
-   single review gate** (the summary PR). The author reviews and merges,
-   confirming we both agree the summary is correct — at which point the research
-   is a **statement of fact** the project may rely on.
-3. **Generate tasks.** With the research agreed, we discuss it and create
+1. **ToDo `<Research>`.** A research need is recorded as a ToDo.
+2. **Create the research task and seed Gemini.** A `research/` task (`RES-<n>`)
+   is created. The agent creates a directory at
+   `~/GoogleDrive/My Drive/MagpieWeaver/Research/<TaskRef>-<slug>/` and writes
+   a `context_and_question.md` — project context plus the specific research
+   question — to seed the Gemini conversation. The agent and author agree the
+   content of this file before proceeding.
+3. **Research in Gemini.** The author copies `context_and_question.md` into the
+   Gemini app (typically on their tablet) and conducts the research
+   conversation. As Gemini surfaces findings, the author extracts them as
+   markdown or rich text and saves the files into the same Drive directory.
+4. **Summarise into docs.** The agent reads the findings from the Drive
+   directory and writes a faithful summary at `docs/research/<slug>.md`, on
+   branch `research/<TaskRef>`, and raises a PR. This is a **docs-only task
+   with a single review gate** (the summary PR). The author reviews and merges,
+   confirming the summary is correct — at which point the research is a
+   **statement of fact** the project may rely on.
+5. **Generate tasks.** With the research agreed, we discuss it and create
    `planning/`/`feature/` tasks to update the roadmap, design, and specs. These
    re-enter the standard workflow above.
 
@@ -273,11 +282,14 @@ Conventions and principles:
 
 - **Branch root `research/`**, task references **`RES-<n>`** (e.g. `RES-1`).
 - Research summaries live at **`docs/research/<slug>.md`**.
+- **Google Drive handoff directory:**
+  `~/GoogleDrive/My Drive/MagpieWeaver/Research/<TaskRef>-<slug>/`.
+  This directory is outside the repository and not subject to commit or PR
+  gates — it is a working scratch space for the handoff between the agent and
+  the author's Gemini session.
 - **Summarise faithfully.** The summary captures what the source actually says;
   anything ambiguous or inferred is flagged as such. Research (fact) is kept
   separate from our decisions, which follow as tasks.
-- **Fetch caveat.** The agent can only read **public** source URLs. If a source
-  is private/authenticated, its content must be pasted in instead.
 
 ## Normal sequence vs. bootstrap
 
