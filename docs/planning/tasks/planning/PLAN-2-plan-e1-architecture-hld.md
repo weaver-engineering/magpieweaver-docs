@@ -5,11 +5,11 @@
 | Reference    | `PLAN-2`                                   |
 | Type         | planning                                   |
 | Story / Epic | —                                          |
-| Output(s)    | —                                          |
+| Output(s)    | [E1-architecture-hld.md](../../epics/E1-architecture-hld/E1-architecture-hld.md) |
 | Depends on   | `RES-3`, `RES-4`                           |
 | Branch       | `planning/PLAN-2`                          |
-| Status       | In Progress                               |
-| PRs          | —                                          |
+| Status       | Done                                      |
+| PRs          | #8, #11                                   |
 
 ## Purpose
 

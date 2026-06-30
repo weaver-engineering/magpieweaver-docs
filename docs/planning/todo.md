@@ -9,7 +9,6 @@ removed from this list once actioned.
 
 ## Open
 
-- [2026-06-28] Decide the implementation repo(s): language, project structure, and how the shared docs↔code branch naming works in practice. *(→ `E1` Architecture & HLD)*
 - [2026-06-28] Define the metadata model: lore, characters, story arcs, scenes, timelines, revealed truths — entities, relationships, and how/where they are stored. *(→ `E5` MVP)*
 - [2026-06-28] Design the character engine: how characters are empowered by LLMs (prompting, memory/context window, which model(s)) to act and converse in-character. *(→ `E5` MVP)*
 - [2026-06-28] Design the scene flow: how the author sets up and directs a scene, and how characters engage with each other and the author within it. *(→ `E5` MVP)*

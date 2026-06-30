@@ -7,7 +7,7 @@ each is planned in detail by its own `PLAN-` task before it starts.
 
 | Ref  | Epic                      | Status   | Planning task | Plan |
 |------|---------------------------|----------|---------------|------|
-| `E1` | Architecture & HLD        | Proposed | [`PLAN-2`](../tasks/planning/PLAN-2-plan-e1-architecture-hld.md) | — |
+| `E1` | Architecture & HLD        | Proposed | [`PLAN-2`](../tasks/planning/PLAN-2-plan-e1-architecture-hld.md) | [E1-architecture-hld.md](../tasks/epics/E1-architecture-hld/E1-architecture-hld.md) |
 | `E2` | Hello World Prototype     | Proposed | [`PLAN-3`](../tasks/planning/PLAN-3-plan-e2-hello-world-prototype.md) | — |
 | `E3` | Stand up LLM              | Proposed | [`PLAN-4`](../tasks/planning/PLAN-4-plan-e3-stand-up-llm.md) | — |
 | `E4` | Git-backed file store     | Proposed | [`PLAN-5`](../tasks/planning/PLAN-5-plan-e4-git-backed-file-store.md) | — |
