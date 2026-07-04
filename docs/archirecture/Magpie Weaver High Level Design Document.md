@@ -1,9 +1,9 @@
 ---
 created: 2026-07-04T13:44:32+01:00
-modified: 2026-07-04T16:09:04+01:00
+modified: 2026-07-04T18:40:24+01:00
 ---
 
-# Magpie Weaver — High-Level Design (HLD)
+# Magpie Weaver — High-Level Design (HLD) v1
 
 > **Status:** agreed research (statement of fact once merged via `RES-3`).
 > **Captured:** 2026-06-30.
