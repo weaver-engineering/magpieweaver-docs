@@ -1,11 +1,134 @@
 # Magpie Weaver Architecture
 
+---
 ## 1. Context
 
 - [Glossary](/docs/glossary.md) - Glossary of terms.
 - [About Magpie Weaver](../magpie-weaver.md) - Background reading about Magpie Weaver.
 - [High Level Design](high-level-design.md) - Magpie Weaver high level design.
 
+---
+## Production Architecture
+There are 2 flavors of production architecture for Magpie Weaver.
+The architecture of the system at enterprise scale, not part of MVP and the architecture as small scale (limited users)
+
+### Target Production Architecture - Enterprise Scale
+
+```
+---------------- Local Device ----------------------+----------------- Cloud (e.g. AWS) ------------------------------ 
+                                                    |
+                                                    |                 +----LLM----+
+                                                    |             +-> + Bedrock   |
+                                                    |             |   |model - TBD|
+                                                    |             |   +-----------+
++------------------+                                |             |
+| iOS - Native App + ----------+                    |             |   +---------------+       +--------storage-------+
++------------------+           |                    |             |   | EC2 Instance  |       |          EFS         |
+                               |                    |             +-> + (TS Service   + <-+-> + (Per user workspaces |
++----------------------+       |   +- embedded -+   |   +-----+   |   | & Git binary) |   |   |  & Git repos)        |
+| Android - Native App + ------+-> |     UI     | <---> + ALB + <-+   +---------------+   |   +----------------------+
++----------------------+       |   | (React/TS) |   |   +-----+   |                       |
+                               |   +-----+------+   |             |   +---------------+   |   +--------cache---------+
++---------------------------+  |                    |             +-> + EC2 Instance  + <-+-> +   ElastiCache        |
+| Desktop - magpieweaver.sh + -+                    |             |   | (TS Service   |   |   |   -Memcached-        |
+|   -system tray icon-      |                       |             |   | & Git binary) |   |   | (User session data   |
++-----cache-----------------+                       |             |   +---------------+   |   | Indexes, Semaphores  |
+|   Map<string,any>         |                       |             |                       |   | etc.)                |
++---------------------------+                       |             +->      ...          <-+   +----------------------+
+|  TS Service & Git binary  + ---------------------LLM-->                                     
++-------storage-------------+                       |            
+|      Local FS             |                       |
++---------------------------+                       |
+```
+
+* Mobile first
+* Thin client
+* Single React/TS UI
+* Single Reast Service backend
+* Bedrock LLM - model TBD
+* Cloud
+  * Load balanced EC2 instances - TS Server & Git binaries
+  * EFS shared storage - per user workspaces
+  * Elasticache - memcached session data
+* Local
+  * Local Compute - TS Server & Git binaries
+  * Local RAM - map cached session data
+  * Local FS - per user shared workspaces
+
+### MVP Production Architecture - Limited Users
+
+```
+---------------- Local Device ----------------+----------------- Cloud (e.g. AWS) ---------------- 
+                                              |                             +----LLM----+
+                                              |                         +-> + Bedrock   |
+                                              |                         |   |model - TBD|
+                                              |   +-----cache-------+   |   +-----------+
+                                              |   | Map<string,any> |   | 
+                                              |   +-----------------+   |   +--------storage-------+     
++----------------------+     +- embedded -+   |   | EC2 Instance    |   |   |          EFS         |    
+| Android - Native App + --> |     UI     | <---> + (TS Service     + <-+-> + (Per user workspaces |
++----------------------+     | (React/TS) |   |   | & Git binary)   |       |  & Git repos)        | 
+                             +------------+   |   +-----------------+       +----------------------+  
+```
+
+* Android App
+* Thin Client
+* React/TS UI
+* Single EC2 Instance - TS Server & Git binaries
+* EC2 Instance scoped cache - map cached session data
+* EFS storage - per user workspaces
+* Bedrock LLM - model TBD
+
+---
+## Test Architecture
+???
+
+---
+## Development Architecture
+
+```
+------------------------- Local Device ------------------------------------------
+
+                                                        +----LLM----+
+                                                    +-> | LM Studio |
+                                                    |   |model - TBD|
+                                                    |   +-----------+
+                                                    |    
+                                                    |   +-------cache-----+
+                                                    +-> + Map<string,any> +
++----browser----+     +-------------------------+   |   +-----------------+
+| UI (React/TS) + --> + TS Service & Git binary + --+
++---------------+     +-------------------------+   |   +--------storage-------+
+                                                    |   |          EFS         | 
+                                                    +-> + (Per user workspaces |
+                                                        |  & Git repos)        |
+                                                        +----------------------+
+```
+
+* Browser SPA
+* Thin Client
+* React/TS UI
+* Local Compute - TS Server & Git binaries
+* Local RAM - map cached session data
+* Local FS - per user shared workspaces
+* LM Studio LLM - model TBD
+
+### Development Approach
+100% Agentic AI code writing etc.
+
+### Development Cycle
+Task phases etc.
+
+### Guard Rails
+
+
+### Deployment / CI/CD Pipeline
+
+
+### OpenCode Configuration
+
+
+---
 # Appendix
 
 ## Architectural Decision Records
