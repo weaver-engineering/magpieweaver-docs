@@ -34,12 +34,9 @@ To give authors a tool that handles the bookkeeping of a complex narrative — k
 
 ## Project documentation
 
-- [Ways of Working](docs/ways-of-working.md) — how we plan, spec, and build Magpie Weaver.
-- [Roadmap](docs/planning/plans/roadmap.md) — epics and delivery sequence.
-- [Task Register](docs/planning/tasks.md) — traceability for all work.
-- [ToDo](docs/planning/todo.md) — running scratch list of things to do, plan, or investigate.
-- [Research](docs/research/) — agreed research summaries that inform the design.
+- [Glossary](docs/glossary.md) - Glossary of terms.
+- [About](docs/magpie-weaver.md) — More details about Magpie Weaver.
+- [Architecture](docs/architecture/architecture-definition-document.md) — The architecture of the application and it build environment.
+- [High Level Design](docs/architecture/high-level-design.md) — The high level design of Magpie Weaver with links to composite components and designs.
+- [Notes](notes/) — Notes from external research awaiting incorporation into Magpie Weaver documentation
 
----
-
-*This README is the high-level overview. As the project firms up, detailed topics (architecture, the metadata model, character engine, scene flow, roadmap) will move into their own documents within this package.*
