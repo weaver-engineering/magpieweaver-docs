@@ -3,8 +3,8 @@
 ## 1. Context
 
 - [Glossary](/docs/glossary.md) - Glossary of terms.
-* [About Magpie Weaver](../magpie-weaver.md) - Background reading about Magpie Weaver.
-* [High Level Design](high-level-design.md) - Magpie Weaver high level design.
+- [About Magpie Weaver](../magpie-weaver.md) - Background reading about Magpie Weaver.
+- [High Level Design](high-level-design.md) - Magpie Weaver high level design.
 
 # Appendix
 
