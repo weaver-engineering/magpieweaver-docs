@@ -267,12 +267,39 @@ The tasks' progress through these phases is tracked by the ticketing system `Lin
 are mastered.
 
 ### Local Dev Environment Setup
-**ToDo** — see task `TBD-01`.
+**ToDo** — see task `TBD-01`. Full step-by-step instructions: [local-dev-environment-setup.md](local-dev-environment-setup.md).
 
 This section will cover what's needed to stand up the Development Architecture environment from a clean machine
 (or resume it after a break): required tool versions (Node/TS toolchain, Git), LM Studio installation and model
 setup, environment variables/config, and first-run steps to confirm the browser SPA, TS Service, and LM Studio are
 talking to each other correctly.
+
+**Quick start** (assumes `pnpm`, see the linked doc for full detail, prerequisites, and the first-run smoke test):
+```bash
+# 1. Clone repositories
+mkdir -p ~/dev/magpie-weaver && cd ~/dev/magpie-weaver
+git clone https://github.com/simonemmott/magpieweaver.git code
+git clone https://github.com/simonemmott/magpieweaver-docs.git docs
+
+# 2. Install dependencies
+cd code
+pnpm install
+
+# 3. Configure environment
+cp .env.example .env.local   # then fill in LM Studio endpoint, workspace path, service port
+
+# 4. Start LM Studio (separately, via its own app) and confirm it's serving on the configured port
+
+# 5. Create local workspace storage
+mkdir -p ~/dev/magpie-weaver/workspaces
+
+# 6. Start the TS Service
+pnpm dev
+
+# 7. Start the UI
+pnpm dev:ui
+```
+Open the UI at the URL printed by step 7, then run the first-run smoke test in the linked doc before starting task work.
 
 ### Guard Rails
 **ToDo** — see task `TBD-02`.
