@@ -266,21 +266,62 @@ cleanliness of a full redo and the cost, in AI token usage, of doing so.
 The tasks' progress through these phases is tracked by the ticketing system `Linear`, where the task and its `<REF>`
 are mastered.
 
+### Local Dev Environment Setup
+**ToDo** — see task `TBD-01`.
+
+This section will cover what's needed to stand up the Development Architecture environment from a clean machine
+(or resume it after a break): required tool versions (Node/TS toolchain, Git), LM Studio installation and model
+setup, environment variables/config, and first-run steps to confirm the browser SPA, TS Service, and LM Studio are
+talking to each other correctly.
+
 ### Guard Rails
-**ToDo**
+**ToDo** — see task `TBD-02`.
+
+### Security & Secrets Management
+**ToDo** — see task `TBD-03`.
+
+This section will cover how credentials and sensitive data are protected across environments: Bedrock API
+credentials, Git credentials for per-user workspaces, session data held in cache, and how ADR-022's structural PII
+linter fits into the wider security posture.
 
 ### Build Process
-**TBC**
+**TBC** — see task `TBD-04`.
 
 ### Deployment / CI/CD Pipeline
-**TBC**
+**TBC** — see task `TBD-05`.
 
 > **Note — dependency on ADR-021:** ADR-021 (GitHub Actions as CI/CD Provider) is currently open, pending
 > investigation. This section cannot be finalized until that ADR is resolved, since the pipeline stages, gates, and
 > infrastructure described here depend on which CI/CD provider is adopted.
 
+### Rollback / Incident Response
+**ToDo** — see task `TBD-06`.
+
+The deployment process above defines forward gates (`deploy-test` UAT, `deploy-prod` sanity test) but not yet what
+happens if a `deploy-prod` sanity test fails after mainline has already been merged and deployed. This section will
+define the rollback procedure and who/what triggers it.
+
 ### OpenCode Configuration
-**TBC**
+**TBC** — see task `TBD-07`.
+
+### Observability & Monitoring
+**ToDo** — see task `TBD-08`.
+
+ADR-020 commits to OpenObserve for local observability, lifecycle owned by MagpieWeaverApp. This section will define
+what is actually monitored (logs, metrics, traces), where that data lives in each environment (local, test,
+production), and how the architect checks system health day to day.
+
+### Cost Management
+**ToDo** — see task `TBD-09`.
+
+Bedrock is pay-per-use and EC2 is scale-to-zero, both of which can produce cost surprises without active monitoring.
+This section will define cost guardrails and alerting thresholds.
+
+### Backup & Disaster Recovery
+**ToDo** — see task `TBD-10`.
+
+EFS holds all per-user workspaces and Git repositories — the system's actual product data. This section will define
+backup frequency/retention and the recovery procedure if that data is lost or corrupted.
 
 ### Repositories
 To minimise the risk of one `subsystem` of Magpie Weaver being built against the wrong version of other `subsystems`,
@@ -301,7 +342,7 @@ The repositories maintained by the Magpie Weaver project are:
   - https://github.com/simonemmott/magpieweaver
 
 #### Branching Strategies
-**ToDo**
+**ToDo** — see task `TBD-11`.
 
 ### Task Tracking
 Tasks, their status and lifecycle are mastered in `Linear` at https://linear.app/simonemmott/project/magpie-weaver-a6314c2e525d
