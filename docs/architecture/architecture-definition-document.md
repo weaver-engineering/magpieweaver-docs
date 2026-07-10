@@ -280,6 +280,9 @@ The repositories maintained by the MagpieWeaver project are:
 #### Branching Strategies
 **ToDo**
 
+### Task Tracking
+Tasks, their status and lifecycle are mastered in `Linear` at https://linear.app/simonemmott/project/magpie-weaver-a6314c2e525d
+
 ---
 # Appendix
 
