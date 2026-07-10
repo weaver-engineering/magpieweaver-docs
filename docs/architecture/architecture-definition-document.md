@@ -267,12 +267,7 @@ The tasks' progress through these phases is tracked by the ticketing system `Lin
 are mastered.
 
 ### Local Dev Environment Setup
-**ToDo** — see task `TBD-01`. Full step-by-step instructions: [local-dev-environment-setup.md](local-dev-environment-setup.md).
-
-This section will cover what's needed to stand up the Development Architecture environment from a clean machine
-(or resume it after a break): required tool versions (Node/TS toolchain, Git), LM Studio installation and model
-setup, environment variables/config, and first-run steps to confirm the browser SPA, TS Service, and LM Studio are
-talking to each other correctly.
+Full step-by-step instructions: [local-dev-environment-setup.md](local-dev-environment-setup.md).
 
 **Quick start** (assumes `pnpm`, see the linked doc for full detail, prerequisites, and the first-run smoke test):
 ```bash
