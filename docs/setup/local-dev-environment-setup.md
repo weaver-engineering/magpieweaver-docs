@@ -1,13 +1,6 @@
----
-created: 2026-07-10T21:36:14+01:00
-modified: 2026-07-10T21:49:13+01:00
----
-
 # Local Dev Environment Setup
 
-# Local Dev Environment Setup
-
-This document supports [task TBD-01](../tasks/TBD-01/task-TBD-01.md) and describes how to stand up the
+This document describes how to stand up the
 [Development Architecture](../architecture.md#development-architecture) on a clean machine, and how to confirm
 everything still works when resuming development after a break.
 

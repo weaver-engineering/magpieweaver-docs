@@ -1,16 +1,18 @@
 # Magpie Weaver — High-Level Design (HLD)
 
-- [Glossary](/docs/glossary.md) - Glossary of terms.
+## 1. Context
 
-## 1. Overview
+- [Glossary](../glossary.md) - Glossary of terms.
+- [About Magpie Weaver](../magpie-weaver.md) - Background reading about Magpie Weaver.
+- [Architecture Definition](architecture-definition-document.md) - Magpie Weaver Architecture.
 
-Magpie Weaver is architected as a single TypeScript pnpm monorepo powering
-three client surfaces — **Enterprise Cloud** (primary, mobile-first),
-**Local Desktop** (convenience), and a **Mobile app** (thin client of the
-cloud workspace) — sharing core data models, validation schemas, and UI
-components through a decoupled storage abstraction (`FileStore` /
-`GitDataStore`). The target audience is primarily mobile; desktop and local
-operation exist for convenience and are held to a lower reliability bar.
+- Magpie Weaver is architected as a single TypeScript pnpm monorepo powering
+  three client surfaces — **Enterprise Cloud** (primary, mobile-first),
+  **Local Desktop** (convenience), and a **Mobile app** (thin client of the
+  cloud workspace) — sharing core data models, validation schemas, and UI
+  components through a decoupled storage abstraction (`GitDataStore`).
+  The target audience is primarily mobile; desktop and local
+  operation exist for convenience and are held to a lower reliability bar.
 
 ## 1a. MVP Scope Boundary
 
@@ -30,13 +32,58 @@ remain reachable later without architectural rework:
 - Multi-scene chronology, branching, and validation (§9)
 - Multi-user collaboration, semantic merge, and conflict resolution (§7.3,
   ADR-009)
-- The per-user cloud workspace/cost-scaling model (§5.2, §12.5, ADR-016) —
-  MVP likely runs against a single workspace, not per-user isolation
+- The **scale-up** side of the cost-scaling model (§12.5, ADR-016) — off-
+  boarding the cache tier to a shared layer once demand exceeds single-host
+  capacity, tuning for concurrent-user growth. Not MVP scope; nothing to
+  scale up to yet.
+  **Scale-to-zero is the opposite case and is in scope for MVP**: dev, test,
+  and early MVP usage all have long idle stretches with no active users, and
+  that's exactly where scale-to-zero (idle-timeout eviction, on-demand Git
+  operations rather than a permanently running process, §12.5) pays off
+  soonest — it isn't a later-stage optimization, it's most valuable early.
 - LLM request queuing/tiered prioritization (free vs. paid fairness with
   aging) — noted in §12.8 as a forward-looking idea, not MVP scope
 - Mobile app and the walk-away/push-notification model (§5.3, ADR-013) —
-  though the underlying Scene Director job-branch/reconciliation pattern
-  (§10.1) should still be built MVP-compatible with this in mind
+  though the underlying Job Execution Substrate that Scene Director runs on
+  (§10.1, §1b) is itself in scope for MVP and should be built with this
+  later mobile use in mind
+
+## 1b. Component Design Documents
+
+This HLD is the system-level document. Each top-level component below is
+(or will be) specified in its own dedicated design doc, so implementation
+detail for a component doesn't have to live here and this document can stay
+focused on how the components fit together. The **Depends on** column is
+load-bearing for sequencing: a component's design doc should not be
+finalized before the components it depends on, since its interface
+contract is partly determined by what it's calling into.
+
+**Note on "MVP?":** this tracks whether the component's *interface* needs to
+exist at MVP, not whether every capability in its eventual design doc ships
+at MVP. Job Execution Substrate is the clearest case — Scene Director calls
+into it for every take (§10.1: "a take is really just a job that happens to
+have a live chat session attached"), so the substrate is MVP even though the
+Async Job Execution System built on top of it (queuing, headless regen,
+prose correction) is not. Don't let a component's MVP/non-MVP tag stand in
+for its dependents' tags — check the dependency chain.
+
+| Component                          | MVP?                                                                             | Design doc                                                                                 | Depends on                                                                                                                                                                                                                                                                        |
+|------------------------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **GitDataStore**                   | Yes, including **per-user isolation**, **scale-to-zero**, Excluding **Scale-up** | [doc](components/git-data-store/git-data-store-hld.md)                                     | — (foundational; no dependencies on other components in this table)                                                                                                                                                                                                               |
+| **MagpieEngine**                   | Yes                                                                              | [doc](components/magpie-engine/magpie-engine-hld.md)                                       | FileStore/GitDataStore (§6) for entity/lore reads; Entity State Schema (ADR-017/018)                                                                                                                                                                                              |
+| **Weaver**                         | Yes                                                                              | [doc](components/weaver/weaver-hld.md)                                                     | MagpieEngine (consumes assembled context, §4 stage 1); LLM provider abstraction (§12.8)                                                                                                                                                                                           |
+| **Job Execution Substrate**        | **Yes**                                                                          | [doc](components/job-execution-substrate/job-execution-substrate-hld.md)                   | FileStore/GitDataStore (branch isolation invariant) — the shared low-level durability layer described in §10: event-level checkpoint/resume, branch-scoped write isolation, continuity-lint circuit breaker. Not client-connection-dependent. Both rows below sit on top of this. |
+| **Scene Director**                 | Yes                                                                              | [doc](components/scene-director/scene-director-hld.md)                                     | Weaver (drives the generation pipeline per take); MagpieEngine (state read/write); **Job Execution Substrate** (a take is a job with a live chat session attached, §10.1 — this dependency is real at MVP, not deferred)                                                          |
+| **Async Job Execution System**     | No                                                                               | [doc](components/async-job-execution-system/async-job-execution-hld.md)                    | **Job Execution Substrate** (adds queuing/dispatch on top — SQS or filesystem-persisted queue); Weaver (headless regen / prose correction both call the LLM pipeline)                                                                                                             |
+| **Chronology & Multi-Scene Model** | No                                                                               | [doc](components/chronology-and-multi-scene-model/chronology-and-multi-scene-model-hld.md) | FileStore/GitDataStore (branch/merge primitives); MagpieEngine (entity-state validation against the chronology invariant, §9)                                                                                                                                                     |
+| **Collaboration & Merge System**   | No                                                                               | [doc](components/colaboration-and-merge-system/colaboration-and-merge-system-hld.md)       | FileStore/GitDataStore (PR/branch mechanics, §7.3); MagpieEngine (schema-validated entity parsing for conflict resolution)                                                                                                                                                        |
+
+Not included in this table: client surfaces (§5), the dev process gate/CI-CD
+(§12.3/§12.10), observability (§12.9), and compliance/PII (§12.11). These
+are cross-cutting or platform concerns rather than components other
+components call into, so a dependency edge doesn't apply the same way —
+they can stay as sections of this HLD rather than spinning out, unless that
+changes later.
 
 ---
 
@@ -45,47 +92,17 @@ remain reachable later without architectural rework:
 ```
 magpie-weaver/
 ├── apps/
-│   ├── desktop/     # Thin launcher: spawns local backend, hands off to browser
-│   ├── mobile/      # Native iOS/Android thin client (cloud workspace only)
-│   ├── web/         # Shared frontend UI (React 19 + TypeScript + Vite SPA)
-│   └── server/      # Cloud/local API server (Fastify + TypeScript)
+│   ├── desktop/      # Thin launcher: spawns local backend, hands off to browser
+│   ├── mobile/       # Native iOS/Android thin client (cloud workspace only)
+│   ├── web/          # Shared frontend UI (React 19 + TypeScript + Vite SPA)
+│   └── server/       # Cloud/local API server (Fastify + TypeScript)
 ├── packages/
-│   ├── filestore/   # Data layer contracts & Git orchestration engine
-│   └── infra/       # Cloud infrastructure-as-code (AWS CDK v2)
-└── docs/            # System specifications and ADRs
+│   ├── gitdatastore/ # Data layer contracts & Git orchestration engine
+│   └── infra/        # Cloud infrastructure-as-code (AWS CDK v2)
+└── docs/             # System specifications and ADRs
 ```
 
-## 3. Component Architecture & Data Flow
-
-The UI is strictly separated from the state mutation engine and physical
-storage via a decoupled **FileStore interface**. All three client surfaces
-speak to the same TS backend API; only Local Desktop also has direct
-filesystem/Git access.
-
-```
-┌─────────────────────────────────────────┐
-│   React 19 UI (Scene Editor, Lore       │
-│   Bible, Timelines, State Diff)         │
-│   — served to: browser (desktop),       │
-│   PWA/webview (mobile shell), CDN (web) │
-└────────────────────┬────────────────────┘
-                      │  HTTP / WebSocket / SSE
-                      ▼
-┌─────────────────────────────────────────┐
-│         FASTIFY API (TypeScript)        │
-│   Interactive scene sessions + async    │
-│   job queue + validation engine         │
-└──────────────┬──────────────────────────┘
-               │
-     ┌─────────┴──────────┐
-     ▼                    ▼
-[ Local backend ]  [ Per-user cloud workspace ]
-  spawned by         native Git host + private
-  desktop launcher    in-memory cache/index
-  Host FS + Git
-```
-
-## 4. Core Engine Loop
+## 3. Core Engine Loop
 
 Four sequential stages per scene event, performed by two named components —
 **MagpieEngine** (context marshaling) and **Weaver** (LLM orchestration) —
@@ -104,9 +121,9 @@ see the Glossary (Appendix A) for full definitions:
    ADR-017), present as a proposed structural diff; on author approval,
    dispatch a `FileStore.commit()` transaction.
 
-## 5. Client Surfaces
+## 4. Client Surfaces
 
-### 5.1 Local Desktop Mode (convenience, offline-first) **(revised)**
+### 4.1 Local Desktop Mode (convenience, offline-first)
 
 - No native shell/IPC bridge. The desktop app is a thin launcher: double-click
   icon → "please wait while the system initialises" loading screen → local
@@ -119,7 +136,7 @@ see the Glossary (Appendix A) for full definitions:
 - Lower reliability bar than mobile/cloud by design — this surface exists for
   convenience, not as the primary target.
 
-### 5.2 Enterprise Cloud Mode (multi-device, multi-user, primary target)
+### 4.2 Enterprise Cloud Mode (multi-device, multi-user, primary target)
 
 - Shared React UI deployed as a progressive web app served from a CDN.
 - Connects to a persistent **Fastify/Node.js** API server, containerized via
@@ -131,7 +148,7 @@ see the Glossary (Appendix A) for full definitions:
   mainline — not shared runtime state. No cross-user contention; conflicts
   surface only at PR/merge time (§8).
 
-### 5.3 Mobile App (thin client, primary target) **(new)**
+### 4.3 Mobile App (thin client, primary target)
 
 - Native iOS/Android app, not a PWA — required because reliable background
   execution and push notifications (for long-running async jobs, §10) are
@@ -142,13 +159,15 @@ see the Glossary (Appendix A) for full definitions:
   jobs complete or need author direction, so the author can close the app
   during long-running generation and be pulled back in only when needed.
 
-## 6. Storage Tier Isolation — the FileStore / GitDataStore Contract
+## 5. Storage Tier Isolation — the GitDataStore Contract
 
 All persistence actions go through a strictly typed interface exported by
-`/packages/filestore`:
+`/packages/gitdatastore`:
 
+The interface below is initial draft only and will be finalized through the
+design of the GitDataStore.
 ```typescript
-interface FileStore {
+interface GitDataStore {
   read(path: string): Promise<string>;
   write(path: string, content: string): Promise<void>;
   list(directory: string): Promise<string[]>;
@@ -159,22 +178,21 @@ interface FileStore {
 
 Runtime implementations:
 
-| Implementation | Used for |
-|----------------|----------|
-| `NativeGitFileStore` | Local Desktop — local filesystem + native Git CLI |
-| `GitDataStore` (cloud) | Enterprise Cloud / Mobile backend — per-user workspace, native Git host, checksum-based write validation |
-| `InMemoryMockFileStore` | CI/testing — zero-dependency in-memory simulation |
+| Implementation  | Used for                                                                                                 |
+|-----------------|----------------------------------------------------------------------------------------------------------|
+| `GitDataStore`  | Enterprise Cloud / Mobile backend — per-user workspace, native Git host, checksum-based write validation |
+| `MockDataStore` | CI/testing — zero-dependency in-memory simulation                                                        |
 
 Git is the durable, versioned backing store for project data (JSON entities
 validated against fixed JSON Schemas). It is **not** queried live — a
 lightweight in-memory cache/index sits over it per user (§9).
 
-## 7. Editing Modes, Commit Granularity & Conflict Resolution
+## 6. Editing Modes, Commit Granularity & Conflict Resolution
 
 Two distinct editing modes keep commit history meaningful and avoid Git
 being used as a live transactional store:
 
-### 7.1 Data Entry Mode
+### 6.1 Data Entry Mode
 - Plain editor: open an entity (e.g. a character), edit fields, save.
 - Every edit updates the user's private in-memory workspace/cache
   immediately; no Git commit per edit. Writes go through `GitDataStore` as
@@ -191,11 +209,11 @@ being used as a live transactional store:
 - `[Publish]` commits the current workspace state and pushes or raises a PR
   to origin/mainline.
 
-### 7.2 Scene Director Mode
+### 6.2 Scene Director Mode
 - See §10 (Scene Execution Model) — direction is interactive, but execution
   of a take runs autonomously and is durable independent of the client.
 
-### 7.3 Multi-User Merge & Conflict Resolution
+### 6.3 Multi-User Merge & Conflict Resolution
 - The project (repo) has an owner who merges contributor PRs into mainline.
 - Both branch versions are parsed into JSON-Schema-validated entity
   instances; conflicts are resolved via attribute priority rules where
@@ -209,7 +227,7 @@ being used as a live transactional store:
   choice between versions, never blended, to avoid silently reconciling a
   real contradiction into a plausible-but-wrong result.
 
-## 8. Querying & Indexing
+## 7. Querying & Indexing
 
 - Project data volume is small and bounded, so a full external database is
   unnecessary. A lightweight in-memory cache sits over each user's private
@@ -222,7 +240,7 @@ being used as a live transactional store:
 - Scenes are also grouped into **arcs** (all scenes involving a given
   character, object, etc.), providing an additional query axis.
 
-## 9. Chronology Model
+## 8. Chronology Model
 
 - Time flows only forward. The chronology is a list of **chronological
   events** — either a single scene, or a nested list of chronological events
@@ -251,12 +269,12 @@ being used as a live transactional store:
   not use the LLM. It does not fix issues — it reports them and guides the
   author through resolution.
 
-## 10. Scene Execution Model **(new)**
+## 9. Scene Execution Model
 
 There are two distinct execution models, both LLM-driven except where noted,
 and both durable independent of client connection state.
 
-### 10.1 Interactive Scene Direction
+### 9.1 Interactive Scene Direction
 - The author chats with AI-agent-driven character "actors" in the Scene
   Director view, using controls (`[Cut]`, `[Action]`, `[From <event>]`,
   `[From the top]`, `[Wrap]`) and direct prose editing.
@@ -273,7 +291,7 @@ and both durable independent of client connection state.
   (§10.2), not a separate one — a take is really just a job that happens to
   have a live chat session attached while the author is present.
 
-### 10.2 Asynchronous Background Jobs
+### 9.2 Asynchronous Background Jobs
 - Queued via SQS (Enterprise Cloud) or an equivalent filesystem-persisted
   queue (Local Desktop).
 - Two subtypes, both requiring the LLM:
@@ -309,7 +327,7 @@ and both durable independent of client connection state.
   explicit edits, and system-triggered for proactive interception (§9) — see
   §12 for remaining open questions on this classification.
 
-## 11. Related Decision Records
+## 10. Related Decision Records
 
 Architectural rationale and consequences for base technology choices are
 tracked in the separate ADR set (ADR-001 through ADR-005). Decisions made
@@ -330,20 +348,20 @@ this: the Rust IPC bridge risk, resolved by removing Tauri per §5.1).
 
 ---
 
-## 12. Sections Requiring Further Detail
+## 11. Sections Requiring Further Detail
 
-### 12.1 Desktop Backend Process Lifecycle
+### 11.1 Desktop Backend Process Lifecycle
 **TODO:** What stops the local backend when the user is "done" — explicit
 quit action, idle-timeout self-exit, or tray-icon-managed process? Needs an
 answer to avoid orphaned background processes, particularly on Windows.
 
-### 12.2 Rust/Native Shell — Resolved, Noting for Traceability
+### 11.2 Rust/Native Shell — Resolved, Noting for Traceability
 Resolved: the Tauri/Rust IPC bridge has been removed from the design (§5.1);
 desktop is now a launcher + browser handoff with a TypeScript-only backend,
 eliminating the one component that broke the "high training-density" stack
 rationale for a 100%-agent-authored codebase.
 
-### 12.3 Three-Phase Task Execution Gate — Robustness (resolved) **(refined)**
+### 11.3 Three-Phase Task Execution Gate — Robustness (resolved)
 
 Given 100% agent-authored code, the Spec → Test → Act gate is the primary
 correctness mechanism (there is no separate human line-by-line code review
@@ -383,7 +401,7 @@ backstop), so rigor here is accepted as worth a velocity cost.
   IDE change.
 - Manual pipeline override remains available to the author throughout.
 
-### 12.4 Monorepo Consequence Management (resolved) **(refined)**
+### 11.4 Monorepo Consequence Management (resolved)
 
 - Spec, Test, and Act gates are kept as three separate commits on a task's
   feature branch, so the gate structure itself provides commit-level
@@ -407,7 +425,7 @@ backstop), so rigor here is accepted as worth a velocity cost.
   repo. (Assumption stated here for confirmation: task docs stay code-side;
   flag if the intent was for task docs to live in `magpieweaver-docs` instead.)
 
-### 12.5 Cloud Hosting Cost Model (resolved) **(refined)**
+### 11.5 Cloud Hosting Cost Model (resolved)
 
 Only the in-memory cache (§8) needs to stay "always on" for a responsive UX
 — Git operations run as short-lived, on-demand operations against FS-backed
@@ -443,13 +461,13 @@ plainly alongside the cost rationale, not just as a cost optimization.
   in the case where it's actually at risk. Routine reindexing outside of
   conflict resolution has no such ordering requirement.
 
-### 12.6 Interactive-vs-Async Job Classification
+### 11.6 Interactive-vs-Async Job Classification
 **TODO:** Beyond explicit author-initiated background tasks and system-
 triggered proactive interception, is there a general rule (e.g. blast-radius
 threshold across downstream scenes/branches) for when the system itself
 decides an edit must be async rather than interactive?
 
-### 12.6a Simplified Git Workflow UX **(new, explicitly deferred)**
+### 11.6a Simplified Git Workflow UX
 **TODO:** Authors are not software engineers and should not be exposed to
 the full flexibility of the Git CLI/API. A deliberately simplified, strictly
 enforced Git workflow (what operations are exposed, what the UI calls them,
@@ -458,7 +476,7 @@ branch-per-job model (§7, §10) and the cache-eviction rules tied to specific
 Git operations (§12.5). This was explicitly identified as a separate design
 discussion, not yet started.
 
-### 12.7 Data Model & Schema Design — moved out of scope **(refined)**
+### 11.7 Data Model & Schema Design — moved out of scope
 
 The core state-tracking schema (`EntityStateAttribute`,
 `EntityStateAttributeValue`, `EntityStateAttributeValueDelta`) and the
@@ -468,11 +486,12 @@ ADR-018) and owned by **MagpieEngine**.
 Further schema work — `Character`, `Scene`, `SceneEvent`, `WorldLoreItem`,
 `PlotPoint`, and the conditional context-inclusion condition object — is
 MagpieEngine's context-marshaling responsibility specifically, and belongs
-in a dedicated **MagpieEngine HLD** (forthcoming), not this system-level
-document. This HLD's remaining scope is the surrounding system: client
-surfaces, storage/collaboration model, execution model, and process gates.
+in `magpie-engine-hld.md` (see the Component Design Documents table, §1b),
+not this system-level document. This HLD's remaining scope is the
+surrounding system: client surfaces, storage/collaboration model, execution
+model, and process gates.
 
-### 12.8 LLM Orchestration Layer (candidates outlined, not locked) **(refined)**
+### 11.8 LLM Orchestration Layer (candidates outlined, not locked)
 
 **Provider model:** the app supplies a default LLM (needed to demonstrate
 the product at all — this is not something the app can meaningfully run
@@ -489,12 +508,12 @@ snapshot to size the decision, current as of mid-2026; expect this to be
 revisited close to each tier's actual build-out, since pricing and model
 quality in this space move quickly.
 
-| Tier | Need | Candidate approach |
-|---|---|---|
-| **Local dev/testing** | Runs on a developer machine (~20GB RAM total footprint alongside the rest of the stack); doesn't need good prose or great linting, just needs to exercise the workflow. | A small local model (e.g. **Phi-4-mini**, ~3.8B, ~4GB RAM at Q4 quantization, or **Qwen3 8B**, ~6–7GB RAM at Q4) via **Ollama** or **llama.cpp**, exposed through an OpenAI-compatible local endpoint. Leaves ample headroom for the OS, backend, and frontend on a 20GB machine. No GPU required. |
-| **MVP / initial rollout, 1–5 concurrent users** | Needs to be genuinely valuable (good prose, real continuity linting), lowest cost, must prevent runaway/unpaid overuse. | A hosted API — self-hosting doesn't make sense at this volume (the self-host cost crossover point is roughly 2–5M tokens/day of steady usage; 1–5 users won't reach that). Candidates in the low-cost-but-capable range: **Gemini 3 Flash** (~$0.50/$3.00 per 1M input/output tokens), **DeepSeek V4 Flash** (~$0.14/$0.28), or **MiniMax M3** (~$0.60/$2.40, one of the cheapest models clearing 80% on SWE-bench-class benchmarks — a reasonable proxy for instruction-following/consistency quality). Requires app-side per-user rate limiting/quota enforcement regardless of provider choice, since none of these providers cap spend for you. |
-| **Medium concurrency, ~100 concurrent users** | Needs to scale predictably; self-hosting becomes a real option but isn't automatically the right one. | Likely still API-first unless usage volume is independently verified to approach the self-host crossover threshold — worth instrumenting token volume from day one specifically to make this call with real data rather than guessing. If self-hosting: a single reserved **H100 or H200 SXM instance** (~$2.00–2.60/GPU-hour on specialized GPU clouds, cheaper reserved) running **vLLM** or **SGLang** with a mid-size open-weight MoE model (e.g. **Qwen3.6-35B-A3B**, ~35B total/3B active parameters, Apache 2.0) at FP8 quantization — a reasonable throughput/cost balance at this scale. |
-| **High concurrency, ~1000 concurrent users** | Volume very likely crosses the self-hosting economic threshold; needs real MLOps investment. | Self-hosted, multi-GPU (multiple H100/H200 nodes, tensor-parallel serving via vLLM/SGLang), sized against actual concurrent-generation load (not total registered users — most won't be generating simultaneously) and KV-cache memory per concurrent session. Realistic order of magnitude: **low-to-mid five-figures USD/month** in GPU spend alone, plus dedicated engineering capacity (this is consistently cited as exceeding infrastructure cost itself at this scale) — monetization needs to be in place to fund this tier, consistent with the plan to reach it only once usage justifies it. |
+| Tier                                            | Need                                                                                                                                                                    | Candidate approach                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+|-------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Local dev/testing**                           | Runs on a developer machine (~20GB RAM total footprint alongside the rest of the stack); doesn't need good prose or great linting, just needs to exercise the workflow. | A small local model (e.g. **Phi-4-mini**, ~3.8B, ~4GB RAM at Q4 quantization, or **Qwen3 8B**, ~6–7GB RAM at Q4) via **Ollama** or **llama.cpp**, exposed through an OpenAI-compatible local endpoint. Leaves ample headroom for the OS, backend, and frontend on a 20GB machine. No GPU required.                                                                                                                                                                                                                                                                                                                                                  |
+| **MVP / initial rollout, 1–5 concurrent users** | Needs to be genuinely valuable (good prose, real continuity linting), lowest cost, must prevent runaway/unpaid overuse.                                                 | A hosted API — self-hosting doesn't make sense at this volume (the self-host cost crossover point is roughly 2–5M tokens/day of steady usage; 1–5 users won't reach that). Candidates in the low-cost-but-capable range: **Gemini 3 Flash** (~$0.50/$3.00 per 1M input/output tokens), **DeepSeek V4 Flash** (~$0.14/$0.28), or **MiniMax M3** (~$0.60/$2.40, one of the cheapest models clearing 80% on SWE-bench-class benchmarks — a reasonable proxy for instruction-following/consistency quality). Requires app-side per-user rate limiting/quota enforcement regardless of provider choice, since none of these providers cap spend for you. |
+| **Medium concurrency, ~100 concurrent users**   | Needs to scale predictably; self-hosting becomes a real option but isn't automatically the right one.                                                                   | Likely still API-first unless usage volume is independently verified to approach the self-host crossover threshold — worth instrumenting token volume from day one specifically to make this call with real data rather than guessing. If self-hosting: a single reserved **H100 or H200 SXM instance** (~$2.00–2.60/GPU-hour on specialized GPU clouds, cheaper reserved) running **vLLM** or **SGLang** with a mid-size open-weight MoE model (e.g. **Qwen3.6-35B-A3B**, ~35B total/3B active parameters, Apache 2.0) at FP8 quantization — a reasonable throughput/cost balance at this scale.                                                   |
+| **High concurrency, ~1000 concurrent users**    | Volume very likely crosses the self-hosting economic threshold; needs real MLOps investment.                                                                            | Self-hosted, multi-GPU (multiple H100/H200 nodes, tensor-parallel serving via vLLM/SGLang), sized against actual concurrent-generation load (not total registered users — most won't be generating simultaneously) and KV-cache memory per concurrent session. Realistic order of magnitude: **low-to-mid five-figures USD/month** in GPU spend alone, plus dedicated engineering capacity (this is consistently cited as exceeding infrastructure cost itself at this scale) — monetization needs to be in place to fund this tier, consistent with the plan to reach it only once usage justifies it.                                             |
 
 **Consequence to note:** rate limiting and cost control need to exist from
 the MVP tier onward regardless of which specific provider is chosen — this
@@ -513,7 +532,7 @@ once self-hosting (§12.8's ~100/~1000-user tiers) and monetization exist —
 noted here now so the LLM-call path is designed to have a queue insertable
 in front of it later, without needing rework.
 
-### 12.9 Observability & Monitoring (local tooling resolved) **(refined)**
+### 11.9 Observability & Monitoring (local tooling resolved)
 
 - **Enterprise Cloud:** AWS CloudWatch (or equivalent) covers backend/API
   health, per-user cloud workspace metrics, and the async job queue — no
@@ -539,7 +558,7 @@ per call, continuity-lint pass/fail rate, circuit-breaker trip rate) before
 this is fully locked — the tool choice is made, but the exact dashboard/metric
 definitions are not yet specified.
 
-### 12.10 CI/CD Pipeline (provider chosen, open pending investigation) **(refined)**
+### 11.10 CI/CD Pipeline (provider chosen, open pending investigation)
 
 The CI/CD pipeline is where the development-gate guardrails (§12.3/ADR-015)
 are actually enforced — no code/test changes on a spec commit, no spec/code
@@ -560,7 +579,7 @@ fail-then-pass test ordering) hasn't been confirmed, only assumed.
 - Cloud/infra deployment pipeline specifics for the MVP EC2 auto-shutdown +
   Lambda-triggered-restart model (discussed, not yet formalized as an ADR).
 
-### 12.11 Compliance & Data Privacy (structured-PII lint resolved; broader items flagged) **(refined)**
+### 11.11 Compliance & Data Privacy (structured-PII lint resolved; broader items flagged)
 
 **Structured-field PII lint (resolved):** email addresses, phone numbers,
 dates of birth, and URLs are **hard-blocked** by default from prose and
@@ -605,4 +624,3 @@ the MVP-specific EC2 auto-shutdown model, §12.10) is motivated by cost, but
 also carries a genuine environmental-responsibility rationale worth stating
 plainly alongside the cost one — not running compute nobody is using is
 simply the right thing to do, independent of what it saves.
-
