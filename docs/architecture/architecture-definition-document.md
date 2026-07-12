@@ -1,4 +1,4 @@
----
+
 ## 1. Context
 
 - [Glossary](../glossary.md) - Glossary of terms.

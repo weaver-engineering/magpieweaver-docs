@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "6b525782791b48ae",
+        "id": "673a70acf2e51804",
         "type": "tabs",
         "children": [
           {
-            "id": "ba4e07f3fc6e040a",
+            "id": "8d581b0bf2f29f6d",
             "type": "leaf",
             "state": {
               "type": "markdown",
@@ -20,65 +20,8 @@
               "icon": "lucide-file",
               "title": "high-level-design"
             }
-          },
-          {
-            "id": "103c9b254e8a2fb2",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "docs/architecture/architecture-definition-document.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "architecture-definition-document"
-            }
-          },
-          {
-            "id": "02eb25bc5112a147",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "docs/glossary.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "glossary"
-            }
-          },
-          {
-            "id": "5cd470a41f4da843",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "docs/architecture/tech-stack.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "tech-stack"
-            }
-          },
-          {
-            "id": "3da595d4b04a68bb",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "docs/architecture/tech-stack.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "tech-stack"
-            }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "vertical"
@@ -169,7 +112,7 @@
         "state": {
           "type": "backlink",
           "state": {
-            "file": "docs/architecture/architecture-definition-document.md",
+            "file": "docs/architecture/tech-stack.md",
             "collapseAll": false,
             "extraContext": false,
             "sortOrder": "alphabetical",
@@ -235,43 +178,43 @@
       "obsidian-git:Open Git source control": false
     }
   },
-  "active": "103c9b254e8a2fb2",
+  "active": "8d581b0bf2f29f6d",
   "lastOpenFiles": [
-    "gitignore.md",
-    "docs/architecture/high-level-design.md",
-    "docs/architecture/tech-stack.md",
-    "docs/glossary.md",
-    "notes/Shared schemas between GitDaraStore and Fastify.md",
     "docs/architecture/architecture-definition-document.md",
-    "docs/magpie-weaver.md",
-    "notes/workflow-design-summary.md",
-    "notes/todo-investigate-github-actions.md",
-    "notes/todo-design-git-workflow.md",
-    "notes/running-and-training-llms.md",
-    "notes/entity-state-schema-model.md",
-    "notes/HLD-cached-entity-storage-with-WAL.md",
-    "docs/setup/local-dev-environment-setup.md",
+    "docs/architecture/high-level-design.md",
+    "docs/architecture/tech-stack.md.md",
+    "docs/architecture/tech-stack.md",
+    "notes/Shared Schemas Between GitDataStore and Fastify.md",
+    "notes/2026-07-10-21-36-14.md",
+    "notes/2026-07-10-21-20-41.md",
+    "notes/2026-07-10-21-20-23.md",
+    "notes/2026-07-10-21-20-03.md",
+    "notes/2026-07-10-21-19-45.md",
+    "notes/2026-07-10-21-19-26.md",
+    "notes/2026-07-10-21-19-11.md",
+    "notes/2026-07-10-21-18-51.md",
+    "notes/2026-07-10-21-18-32.md",
+    "notes/2026-07-10-21-18-12.md",
+    "notes/2026-07-10-21-17-57.md",
+    "notes/2026-07-10-21-17-32.md",
+    "/notes/Shared Schemas Between GitDataStore and Fastify.md",
+    "/docs/architecture/tech-stack.md.md",
+    "/docs/architecture/2026-07-10-22-52-01.md",
+    "docs/architecture/2026-07-10-22-52-01.md",
+    "/docs/architecture",
+    "/docs",
+    "/notes/2026-07-10-21-36-14.md",
+    "/notes/2026-07-10-21-20-41.md",
+    "/notes/2026-07-10-21-20-23.md",
+    "/notes/2026-07-10-21-20-03.md",
+    "/notes/2026-07-10-21-19-45.md",
+    "/notes",
     "docs/icons/delete.me",
-    "docs/architecture/components/weaver/weaver-hld.md",
-    "docs/architecture/components/scene-director/scene-director-hld.md",
-    "docs/architecture/components/magpie-engine/magpie-engine-hld.md",
-    "docs/architecture/components/job-execution-substrate/job-execution-substrate-hld.md",
-    "docs/architecture/components/git-data-store/git-data-store-hld.md",
-    "docs/architecture/components/colaboration-and-merge-system/colaboration-and-merge-system-hld.md",
-    "docs/architecture/components/chronology-and-multi-scene-model/chronology-and-multi-scene-model-hld.md",
-    "docs/architecture/components/async-job-execution-system/async-job-execution-hld.md",
-    "docs/architecture/ADRs/ADR-022-structural-pii-linter.md",
-    "docs/architecture/ADRs/ADR-021-github-actions-as-cicd-provider.md",
-    "docs/architecture/ADRs/ADR-020-openobserve-for-local-observability.md",
-    "docs/architecture/ADRs/ADR-019-mvp-scope-boundary.md",
     "LICENSE",
     "notes",
     "docs/architecture/components/weaver",
     "docs/architecture/components/scene-director",
     "docs/architecture/components/magpie-engine",
-    "docs/architecture/components/job-execution-substrate",
-    "docs/architecture/components/git-data-store",
-    "docs/architecture/components/colaboration-and-merge-system",
-    "docs/architecture/components/chronology-and-multi-scene-model"
+    "docs/architecture/components/job-execution-substrate"
   ]
 }
