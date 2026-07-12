@@ -3,7 +3,7 @@
 - [Glossary](../glossary.md) - Glossary of terms.
 - [About Magpie Weaver](../magpie-weaver.md) - Background reading about Magpie Weaver.
 - [Architecture Definition](architecture-definition-document.md) - Magpie Weaver Architecture.
-
+* [WorkflowDesignSummary](workflow-design-summary) - An overview the Magpie Weaver workflow
 - Magpie Weaver is architected as a single TypeScript pnpm monorepo powering
   three client surfaces — **Enterprise Cloud** (primary, mobile-first),
   **Local Desktop** (convenience), and a **Mobile app** (thin client of the
