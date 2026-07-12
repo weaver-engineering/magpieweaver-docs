@@ -70,13 +70,13 @@ for its dependents' tags — check the dependency chain.
 | Component                          | MVP?                                                                             | Design doc                                                                                 | Depends on                                                                                                                                                                                                                                                                        |
 |------------------------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **GitDataStore**                   | Yes, including **per-user isolation**, **scale-to-zero**, Excluding **Scale-up** | [doc](components/git-data-store/git-data-store-hld.md)                                     | — (foundational; no dependencies on other components in this table)                                                                                                                                                                                                               |
-| **MagpieEngine**                   | Yes                                                                              | [doc](components/magpie-engine/magpie-engine-hld.md)                                       | FileStore/GitDataStore (§6) for entity/lore reads; Entity State Schema (ADR-017/018)                                                                                                                                                                                              |
+| **MagpieEngine**                   | Yes                                                                              | [doc](components/magpie-engine/magpie-engine-hld.md)                                       | BranchingDataStore/GitDataStore (§6) for entity/lore reads; Entity State Schema (ADR-017/018)                                                                                                                                                                                              |
 | **Weaver**                         | Yes                                                                              | [doc](components/weaver/weaver-hld.md)                                                     | MagpieEngine (consumes assembled context, §4 stage 1); LLM provider abstraction (§12.8)                                                                                                                                                                                           |
-| **Job Execution Substrate**        | **Yes**                                                                          | [doc](components/job-execution-substrate/job-execution-substrate-hld.md)                   | FileStore/GitDataStore (branch isolation invariant) — the shared low-level durability layer described in §10: event-level checkpoint/resume, branch-scoped write isolation, continuity-lint circuit breaker. Not client-connection-dependent. Both rows below sit on top of this. |
+| **Job Execution Substrate**        | **Yes**                                                                          | [doc](components/job-execution-substrate/job-execution-substrate-hld.md)                   | BranchingDataStore/GitDataStore (branch isolation invariant) — the shared low-level durability layer described in §10: event-level checkpoint/resume, branch-scoped write isolation, continuity-lint circuit breaker. Not client-connection-dependent. Both rows below sit on top of this. |
 | **Scene Director**                 | Yes                                                                              | [doc](components/scene-director/scene-director-hld.md)                                     | Weaver (drives the generation pipeline per take); MagpieEngine (state read/write); **Job Execution Substrate** (a take is a job with a live chat session attached, §10.1 — this dependency is real at MVP, not deferred)                                                          |
 | **Async Job Execution System**     | No                                                                               | [doc](components/async-job-execution-system/async-job-execution-hld.md)                    | **Job Execution Substrate** (adds queuing/dispatch on top — SQS or filesystem-persisted queue); Weaver (headless regen / prose correction both call the LLM pipeline)                                                                                                             |
-| **Chronology & Multi-Scene Model** | No                                                                               | [doc](components/chronology-and-multi-scene-model/chronology-and-multi-scene-model-hld.md) | FileStore/GitDataStore (branch/merge primitives); MagpieEngine (entity-state validation against the chronology invariant, §9)                                                                                                                                                     |
-| **Collaboration & Merge System**   | No                                                                               | [doc](components/colaboration-and-merge-system/colaboration-and-merge-system-hld.md)       | FileStore/GitDataStore (PR/branch mechanics, §7.3); MagpieEngine (schema-validated entity parsing for conflict resolution)                                                                                                                                                        |
+| **Chronology & Multi-Scene Model** | No                                                                               | [doc](components/chronology-and-multi-scene-model/chronology-and-multi-scene-model-hld.md) | BranchingDataStore/GitDataStore (branch/merge primitives); MagpieEngine (entity-state validation against the chronology invariant, §9)                                                                                                                                                     |
+| **Collaboration & Merge System**   | No                                                                               | [doc](components/colaboration-and-merge-system/colaboration-and-merge-system-hld.md)       | BranchingDataStore/GitDataStore (PR/branch mechanics, §7.3); MagpieEngine (schema-validated entity parsing for conflict resolution)                                                                                                                                                        |
 
 Not included in this table: client surfaces (§5), the dev process gate/CI-CD
 (§12.3/§12.10), observability (§12.9), and compliance/PII (§12.11). These
@@ -109,7 +109,7 @@ Four sequential stages per scene event, performed by two named components —
 see the Glossary (Appendix A) for full definitions:
 
 1. **Context assembly** *(MagpieEngine)* — fetch character state, lore
-   documents, and scene notes via the abstract FileStore interface, marshaled
+   documents, and scene notes via the abstract BranchingDataStore interface, marshaled
    according to the current scene state (including conditional inclusion
    rules — see the companion MagpieEngine HLD, forthcoming).
 2. **Generation pipeline** *(Weaver)* — bundle assembled state and the
@@ -119,7 +119,7 @@ see the Glossary (Appendix A) for full definitions:
 4. **State mutation gate** *(Weaver → MagpieEngine)* — derive state updates
    (inventory, character knowledge maps, etc. — see the Entity State Schema,
    ADR-017), present as a proposed structural diff; on author approval,
-   dispatch a `FileStore.commit()` transaction.
+   dispatch a `BranchingDataStore.commit()` transaction.
 
 ## 4. Client Surfaces
 
@@ -132,7 +132,12 @@ see the Glossary (Appendix A) for full definitions:
 - The backend binds to localhost only. Process lifecycle (what stops the
   backend when the user is done) is an open item — see §12.1.
 - Connects directly to the local filesystem and invokes native Git CLI
-  commands via `NativeGitFileStore`.
+  commands via the same `GitDataStore` implementation used by Enterprise
+  Cloud/Mobile — there is no separate desktop-specific implementation of
+  `BranchingDataStore`. (An earlier draft posited a distinct
+  `NativeGitFileStore` implementation for this surface; that's been dropped —
+  `GitDataStore` already runs native Git operations directly and covers local
+  access without a separate implementation.)
 - Lower reliability bar than mobile/cloud by design — this surface exists for
   convenience, not as the primary target.
 
@@ -140,7 +145,11 @@ see the Glossary (Appendix A) for full definitions:
 
 - Shared React UI deployed as a progressive web app served from a CDN.
 - Connects to a persistent **Fastify/Node.js** API server, containerized via
-  Docker on **AWS ECS Fargate** behind an **Application Load Balancer (ALB)**.
+  Docker on **AWS ECS Fargate** behind an **Application Load Balancer (ALB)** —
+  confirmed as a **pooled task fleet** (any task can serve any user's
+  request), which requires the ElastiCache session/index cache (§12.5) to be
+  genuinely externalized first; see `docs/specs/tech-stack.md` §4/§6/§7 for
+  the full rationale and the cache-externalization prerequisite.
 - Infrastructure provisioned in `/packages/infra` using **AWS CDK v2**.
 - Each user is hosted as their own cloud workspace, running Git natively on
   that host. Multi-user collaboration is achieved through ordinary Git
@@ -159,15 +168,19 @@ see the Glossary (Appendix A) for full definitions:
   jobs complete or need author direction, so the author can close the app
   during long-running generation and be pulled back in only when needed.
 
-## 5. Storage Tier Isolation — the GitDataStore Contract
+## 5. Storage Tier Isolation — the BranchingDataStore Contract
 
 All persistence actions go through a strictly typed interface exported by
-`/packages/gitdatastore`:
+`/packages/gitdatastore`. **Naming correction:** earlier drafts of this
+document named the interface itself `FileStore` in prose and, inconsistently,
+`GitDataStore` in the code block below — colliding with `GitDataStore`, which
+is actually the *implementation* of this interface, not the interface itself.
+The interface is `BranchingDataStore`; `GitDataStore` implements it.
 
 The interface below is initial draft only and will be finalized through the
 design of the GitDataStore.
 ```typescript
-interface GitDataStore {
+interface BranchingDataStore {
   read(path: string): Promise<string>;
   write(path: string, content: string): Promise<void>;
   list(directory: string): Promise<string[]>;
@@ -180,7 +193,7 @@ Runtime implementations:
 
 | Implementation  | Used for                                                                                                 |
 |-----------------|----------------------------------------------------------------------------------------------------------|
-| `GitDataStore`  | Enterprise Cloud / Mobile backend — per-user workspace, native Git host, checksum-based write validation |
+| `GitDataStore`  | All surfaces — Enterprise Cloud / Mobile backend and Local Desktop alike — per-user workspace, native Git host, checksum-based write validation. No separate desktop-specific implementation exists; `GitDataStore` runs native Git directly regardless of host. |
 | `MockDataStore` | CI/testing — zero-dependency in-memory simulation                                                        |
 
 Git is the durable, versioned backing store for project data (JSON entities
@@ -202,10 +215,15 @@ being used as a live transactional store:
 - **Durability:** PATCHes are validated, written to a per-entity write-ahead
   delta, and acknowledged; a background process flushes deltas to the
   filesystem and updates the cache/index. On restart, unprocessed deltas are
-  flushed before the cache reinitializes. Sessions are sticky to reach a
-  session's entity cache. Since each user's workspace is private, a crashed
-  session blocks no one else — the user reopens and resumes against their
-  own cache.
+  flushed before the cache reinitializes. No session-affinity/stickiness
+  mechanism is needed to reach a user's cache: at this scale there is exactly
+  one instance and one in-memory cache, so every request naturally lands on
+  it — there's no routing choice to pin in the first place. (Stickiness only
+  becomes a question once multiple interchangeable instances/tasks exist —
+  see §12.5, where cache externalization is chosen specifically so that
+  question never has to be answered by introducing sticky routing at all.)
+  Since each user's workspace is private, a crashed session blocks no one
+  else — the user reopens and resumes against their own cache.
 - `[Publish]` commits the current workspace state and pushes or raises a PR
   to origin/mainline.
 
@@ -451,8 +469,15 @@ plainly alongside the cost rationale, not just as a cost optimization.
   branch-scoped and does not cascade — a branch's cache validity depends
   only on its own state, not on whether other branches are ahead or behind.
 - Once demand exceeds single-host capacity, the cache tier can be off-boarded
-  to a shared layer — viable because the backend is otherwise sessionless,
-  which also retires the sticky-session requirement noted in §7.1/ADR-008.
+  to a shared layer (ElastiCache) — viable because the backend is otherwise
+  sessionless. This is what makes a **pooled** fleet of interchangeable
+  instances/tasks safe (§4.2, `docs/specs/tech-stack.md` §4/§7): externalizing
+  the cache first means sticky-session routing (pinning a user's requests to
+  one specific instance) never has to be introduced at all, at any stage —
+  it's avoided by design, not retired from a prior implementation. (Note: the
+  earlier `§7.1` cross-reference here was stale — no such section exists in
+  this document; ADR-008, covering multi-device concurrency via
+  checksum-validated PATCH and write-ahead deltas, is the correct reference.)
 - **Conflict-resolution transactionality:** when entity conflicts are
   resolved during a merge, index rematerialization must complete (and be
   committed) *before* the destination branch is rebased onto — entity
