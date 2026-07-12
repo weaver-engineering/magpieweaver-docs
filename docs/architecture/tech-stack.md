@@ -106,8 +106,9 @@ for the compute-model discrepancy this document cannot resolve).
 
 - **Confirmed at Enterprise scale:** an ALB sits in front of a **pooled fleet
   of ECS Fargate tasks** — any task can serve any user's request (isolation
-  lives at the Git-workspace/EFS layer, not at the compute layer; see §4.2).
-  EFS backs per-user Git workspaces; ElastiCache (Memcached) backs
+  lives at the Git-workspace/EFS layer, not at the compute layer; see HLD
+  §4.2). EFS backs per-user Git workspaces (see §4.2 below for why EFS is
+  used at MVP too, not just Enterprise); ElastiCache (Memcached) backs
   session/index caching; Bedrock is the target LLM provider for production
   (model TBD — see §5).
 - **Confirmed at MVP scale:** **no ALB, no Fargate.** A single EC2 instance
@@ -159,12 +160,64 @@ convenience access) at minimum ongoing AWS cost.
   hourly fee for any allocated EIP regardless of instance state — roughly
   $0.005/hr — trivial at this scale, but worth naming so it isn't a surprise
   line item later.)
-- **Scale-to-zero:** a small Lambda, triggered on idle detection (or on
-  incoming-request detection via a lightweight always-on listener/DNS
-  approach — exact trigger mechanism is a sub-decision, see §5) calls
-  `StopInstances`/`StartInstances` on the EC2 instance directly. No ECS
-  service, no task definitions, no `UpdateService` calls — just the plain
-  EC2 start/stop API.
+- **Scale-to-zero (resolved — mechanism, trigger, and auth):**
+  - **Stop:** self-managed, no Lambda involved — but **not** based on
+    request activity alone. A pure request-idle timer would be wrong: a
+    Scene Director take can run for a long stretch with the client walked
+    away and zero incoming HTTP requests (HLD §9.1), and async background
+    jobs (§10) are explicitly client-connection-independent — either would
+    get killed mid-generation by a request-activity-only timer, the same
+    "quiet but alive" failure mode already flagged for Fargate health checks
+    in §7. Instead: a **last-heartbeat timestamp**, refreshed by (1) a new
+    client session/connection, and (2) a short, fixed-interval heartbeat
+    emitted by any in-progress long-running job (Scene Director take, async
+    background job) — not just at job start/end, since a single SceneEvent's
+    LLM call could itself outlast the idle window. A lightweight watchdog
+    checks `now − lastHeartbeat > idleThreshold` and calls
+    `ec2:StopInstances` on itself when true, via an IAM role scoped to that
+    one action on its own instance ID. A timestamp-refresh design is
+    preferred over a literal acquire/release semaphore specifically because
+    it self-heals: if a job crashes without hitting a release path, a
+    counter-based semaphore would leak and never let the host stop, whereas
+    a stale timestamp just ages out naturally — no explicit cleanup code
+    required. **Consequence for the Job Execution Substrate:** emitting this
+    heartbeat needs to be part of its durability model — see the companion
+    note, `docs/specs/notes/job-execution-substrate-heartbeat-note.md`, for
+    what this implies for that component's own design.
+  - **Start:** a Lambda behind a **Function URL** (not API Gateway — no
+    fixed hourly cost, standard Lambda pricing only, and the free tier alone
+    likely covers this workload indefinitely at this usage volume). The
+    client's normal path is to connect directly to the instance's Elastic IP
+    first, exactly as if scale-to-zero didn't exist; it only calls the
+    Lambda if that direct attempt fails, to check state and trigger
+    `StartInstances` if stopped. This means the Lambda is invoked roughly
+    once per idle-stop→wake boundary, not once per session and not
+    repeatedly through a session.
+  - **Auth on the wake path (resolved):** the Lambda requires **both** a
+    valid, signed Google ID token (verified via `google-auth-library`,
+    checked against Google's public keys — no VPC needed, since this hits
+    Google's public endpoint directly) **and** a shared secret bundled in
+    the client. Neither alone is sufficient. This is a deliberately narrow
+    gate: it exists only to block blind/automated discovery of the Function
+    URL (e.g. scanner bots hitting a leaked or guessed endpoint with no app
+    involved at all) — it is explicitly **not** the data-access boundary.
+    A leaked secret only ever grants what "is a valid Google account holder"
+    already grants: the ability to see whether the backend is running and
+    to start it, which is functionally identical to what opening the app
+    legitimately allows. See §7 for the accepted residual risk and its
+    mitigation (a billing alarm, not a `sub`-allowlist).
+  - **Real authorization happens once, on the backend, per request — not on
+    the wake path.** The TS Service verifies the same Google ID token, then
+    checks whether the token's `sub` claim (the stable per-account
+    identifier — **not** email, which can change or be reassigned) has a
+    corresponding workspace directory on EFS. This reuses the per-user
+    workspace model that already exists for data isolation, rather than
+    inventing a second authorization mechanism. **For MVP, workspace
+    creation is hand-provisioned by the operator, not self-service** — there
+    is no signup flow, no "create workspace" UI, and no user-management
+    system of any kind. This is a genuine MVP-scope boundary (relevant to
+    ADR-019, not just this document) worth stating plainly rather than
+    letting "auth exists" be read as "user management exists."
 - **Cold start accepted, not engineered away.** Booting a stopped instance
   and having the TS Service come up is a one-time per-session wait for a
   single sporadic user (your daughter) — explicitly worth it for near-zero
@@ -179,9 +232,65 @@ convenience access) at minimum ongoing AWS cost.
   future move to Fargate, but it is **not being treated as a hard MVP
   requirement** — doing so would reintroduce exactly the "extra plumbing to
   fake an Enterprise capability" problem this correction is meant to avoid.
-- **Consequence for the UI:** same as before — the client needs to treat
-  "instance is starting" as an explicit, named UI state, not a bare
-  timeout/error on the first request of a session.
+- **Consequence for the UI:** the client attempts a direct connection first
+  and only falls back to the wake-check Lambda on failure (§4.1 above); when
+  that fallback fires, the client needs to treat "instance is starting" as
+  an explicit, named UI state, not a bare timeout/error.
+
+### 4.2 Storage: Amazon EFS (used at MVP too, not just Enterprise)
+
+**This needed its own examination rather than being carried forward as a
+given.** Every diagram in the Architecture doc uses EFS at every tier,
+including MVP — but EFS's defining feature is concurrent multi-host access,
+which a single-instance MVP has no use for at all. That's worth actually
+justifying rather than assuming, since the obvious alternative (EBS) is
+simpler and roughly 3-4x cheaper per GB.
+
+- **Why EFS anyway, at MVP, despite EBS being cheaper and simpler for a
+  single host:** data-continuity at promotion time, not cost. If MVP used
+  EBS and Enterprise uses EFS (required there, for genuine multi-task
+  access), promotion would require an actual data migration — copying every
+  user workspace from an EBS volume onto EFS — on top of the
+  already-accepted compute re-platforming (§4.1's EC2→Fargate promotion
+  cost). Migrating a live Git-backed workspace correctly (mid-repo-history,
+  possibly mid-write) is meaningfully riskier than a compute change, since a
+  compute promotion touches infrastructure, not data. Using EFS from MVP
+  onward means promotion only ever changes *where compute runs*, never
+  *where data lives* — one variable moving instead of two.
+- **Cost check at actual MVP scale:** the ~3-4x per-GB premium sounds
+  significant in isolation, but at a couple of users' worth of narrative
+  JSON + prose (realistically low single-digit GB for a long while), the
+  absolute difference is on the order of a few dollars a month, not a
+  meaningful line item — nowhere near the scale of the fixed-cost traps
+  already avoided elsewhere (ALB ~$16/mo, NAT Gateway ~$32+/mo, §4). The
+  earlier cost-minimization argument that ruled out Fargate/ALB at MVP does
+  **not** carry over to ruling out EFS — the dollar amounts involved are in
+  a completely different bracket.
+- **No NAT-gateway conflict:** an EFS mount target is just an ENI reachable
+  over NFS (port 2049) from whatever subnet the instance is in — it doesn't
+  require the instance to be in a private subnet, and doesn't reintroduce
+  the NAT Gateway cost already avoided in §4 for outbound internet access.
+  The two decisions are independent and compatible.
+- **Throughput mode:** **Elastic throughput** is the better fit here over
+  the default Bursting mode — it's pay-per-use (scales automatically with
+  actual read/write volume, no capacity planning) rather than a
+  provisioned/credit-based model, which matches the same "pay for what's
+  actually used" ethos already applied to compute (§4.1) and fits genuinely
+  sporadic, low-and-bursty access far better than a steady-baseline
+  assumption would.
+- **Storage class / lifecycle policy:** EFS Infrequent Access (IA), with a
+  lifecycle policy moving files untouched for a configurable period (e.g. 30
+  days) into the cheaper IA tier automatically, is a good fit specifically
+  *because* usage here is sporadic — most workspace data will sit untouched
+  between sessions. This should be enabled from day one; it costs nothing to
+  configure and only saves money as access patterns fall into IA-eligible
+  territory naturally, given how the whole system is expected to be used.
+- **AZ alignment (small operational note, not a design risk):** an EFS
+  mount target is per-AZ; the EC2 instance's stop/start cycle (§4.1) keeps
+  the instance in its originally assigned subnet/AZ unless explicitly moved,
+  so this doesn't introduce a real risk — just worth confirming the mount
+  target exists in that specific AZ when the CDK stack is written, rather
+  than assumed.
 
 **Promotion path — a real, acknowledged cost, not assumed away.** Moving from
 this MVP shape to the Fargate-pooled Enterprise architecture (§4) is a
@@ -202,7 +311,7 @@ papering over them:
 
 | Item | Why it blocks a locked matrix |
 |---|---|
-| **MVP idle-detection trigger mechanism** | §4.1 confirms EC2 `StopInstances`/`StartInstances` via Lambda in principle, but the exact trigger — a scheduled idle check, a lightweight always-listening component that wakes the instance on first inbound connection, or something else — isn't chosen yet. Needs an answer before implementation, but doesn't change the matrix's compute-model entry. |
+| **ADR-019 propagation: "no self-service user management at MVP"** | §4.1 resolved the auth design in a way that produces an explicit MVP-scope statement (hand-provisioned workspaces only, no signup/user-management system). This is genuinely ADR-019 content, not just a tech-stack detail — it should be reflected there directly rather than living only in this document, or a reader of ADR-019 alone will miss it. Not fixed here since ADR-019 is a separate document this task doesn't own. |
 | **Bedrock model selection** | Every architecture diagram marks the Bedrock model as "TBD" and explicitly defers this to its own ADR (Architecture doc, LLM model selection note). HLD §12.8 similarly says no candidate model at any tier is locked. Cannot version-pin what hasn't been chosen. |
 | **CI/CD provider (ADR-021)** | GitHub Actions is the *intended* provider but is recorded as open, pending investigation into whether it can actually enforce the Spec/Test/Act commit-level gate (HLD §11.10). The matrix row exists but should be labelled "proposed," not "chosen," until that investigation closes. |
 | **MVP scope boundary (ADR-019)** | Still open per both source docs. This affects which rows of the matrix are "must be finalised now" vs. "can stay provisional" — e.g., mobile-native tooling is deferred regardless of stack choice once ADR-019 confirms MVP is Android-only, limited-user scope. |
@@ -221,14 +330,19 @@ papering over them:
 | Cloud compute (Enterprise) | AWS ECS Fargate, pooled task fleet | — | Confirmed over raw EC2 for managed scalability — no instance/AMI lifecycle to own, capacity scales at task level. Requires cache externalization (below) as a pooling prerequisite, not optional polish. Architecture doc's Enterprise-Scale diagram now corrected to match (originally showed EC2 in error). |
 | Cloud compute (MVP) | Single EC2 instance + Elastic IP, `StopInstances`/`StartInstances` via Lambda | — | §4.1: matches the actual MVP requirement (minimal compute/RAM, EFS, fixed IP, no ALB) for a single sporadic user. No container requirement at this tier. Genuinely different run target from Enterprise — promotion is a real, acknowledged re-platforming step, not a config change. |
 | Load balancing (Enterprise) | AWS ALB | — | **Enterprise only.** Not present at MVP — a single EC2 instance with an Elastic IP needs no load balancer. |
-| Shared storage | AWS EFS | — | Architecture doc + HLD; per-user workspaces & Git repos. |
+| Shared storage | AWS EFS, Elastic throughput, IA lifecycle policy enabled | — | §4.2: used from MVP onward (not just Enterprise) specifically to avoid a data-migration step at promotion — only compute changes at that point, not where data lives. Elastic throughput and IA lifecycle both chosen to match the sporadic, pay-per-use usage pattern; cost premium over EBS is real but immaterial at actual MVP data volume (a few dollars/month, not a fixed-cost trap like the ALB/NAT costs avoided elsewhere). |
 | Session/index cache (Enterprise scale-up) | ElastiCache (Memcached) | — | Architecture doc Enterprise diagram; explicitly **not MVP** (HLD §1a — scale-up excluded from MVP). |
 | Session/index cache (MVP/Test/Dev) | In-process `Map<string, any>` | — | Architecture doc MVP/Test/Dev diagrams; ADR-010, ADR-016. |
 | LLM provider (target) | AWS Bedrock | **model TBD** | Both source docs mark this explicitly unresolved; own ADR required. |
 | LLM provider (local dev) | LM Studio (or Ollama/llama.cpp per HLD §12.8 candidates) | model TBD (e.g. Phi-4-mini, Qwen3 8B candidates, unpinned) | Architecture doc Development Architecture diagram; HLD §12.8 sizing table. |
 | Data store contract | `GitDataStore` implementing `BranchingDataStore` interface | — (interface still draft, HLD §5) | ADR-004, ADR-006; not yet finalised — HLD itself labels the interface a draft. Renamed from the earlier "FileStore" naming; the rename is now propagated across Architecture, HLD, and Glossary. There is no separate desktop-specific implementation — `GitDataStore` alone covers all surfaces, so the earlier `NativeGitFileStore` naming question is now moot rather than open (§2, §5). |
 | Test-only data store | `MockDataStore` | — | HLD §5; zero-dependency in-memory CI implementation. |
-| Wake-on-demand path (MVP scale-to-zero) | AWS Lambda calling EC2 `StartInstances`/`StopInstances` | — | §4.1/§5: idle-detection trigger mechanism is the one remaining sub-decision; the API calls themselves are plain EC2, no ECS involved. |
+| Wake-on-demand path (MVP scale-to-zero) | AWS Lambda + Function URL, calling EC2 `StartInstances`; stop is self-managed by the TS Service calling `StopInstances` on itself | — | §4.1: fully resolved — trigger (client direct-connect-first, Lambda fallback only), mechanism (plain EC2 API, no ECS), and auth (below) are all decided. Function URL chosen over API Gateway: no fixed hourly cost, free tier covers this workload's volume. |
+| Idle-stop signal (MVP) | Last-heartbeat timestamp, refreshed by client sessions and by in-progress job heartbeats; watchdog checks staleness | — | §4.1: request-activity-only idle detection would kill a quiet-but-alive Scene Director take or async job; a self-healing timestamp (vs. a leak-prone acquire/release semaphore) requires the Job Execution Substrate to emit heartbeats — see the companion note. |
+| User authentication | Google Sign-In (OAuth ID token), verified via `google-auth-library` | — | §4.1: minimal backend for MVP — stateless per-request token verification, no Cognito/DynamoDB/session store required. Same verification logic reused by both the TS Service and the wake-path Lambda. |
+| User authorization | `sub`-keyed EFS workspace lookup (TS Service only) | — | §4.1: reuses the existing per-user workspace model as the authorization source; keyed on Google's `sub` claim specifically, not email (email can change/be reassigned). Workspace creation is hand-provisioned for MVP — no self-service signup (ADR-019-relevant, §5). |
+| Wake-path access control | Shared secret (client-bundled) + valid Google ID token, both required | — | §4.1/§7: narrow gate blocking blind/automated Function URL discovery only — explicitly not the data-access boundary, which lives entirely in the backend's `sub`/workspace check above. Residual risk (a targeted actor extracting the secret can still wake the instance, same bar as a legitimate app user) is accepted; see §7 for the billing-alarm mitigation. |
+| Cost-abuse backstop | AWS Billing/CloudWatch alarm on a small spend threshold | — | §7: cheaper and simpler than adding a `sub`-allowlist to the wake-path Lambda; catches the residual boot-cycling/griefing risk the shared secret doesn't fully close. |
 | CI/CD provider | GitHub Actions (**proposed, not confirmed**) | — | ADR-021, open pending investigation (HLD §11.10). |
 | Local observability | OpenObserve | — | ADR-020; HLD §11.9. |
 | Ticketing/task tracking | Linear | — | Architecture doc, Task Tracking section. |
@@ -244,8 +358,13 @@ papering over them:
 | **Fargate health checks vs. quiet-but-alive tasks** *(Enterprise only)* | A liveness check that doubles as an activity check could kill a task that's correctly alive but quietly waiting on a slow LLM call, losing in-flight state the checkpoint model wasn't designed to protect against at this layer. | Use a lightweight liveness endpoint decoupled from request-serving activity, so a long, quiet generation stretch isn't misread as an unhealthy task. |
 | **Cache-consistency prerequisite for task pooling** *(Enterprise only)* | If task-pooling ships before the cache is genuinely externalized (HLD §12.5), two tasks serving the same user's requests could see inconsistent in-memory state — a correctness bug, not just a performance one. | Treat ElastiCache externalization as a hard prerequisite gating the move to a pooled Fargate fleet, not an optional later optimization; don't enable pooling until it's in place. |
 | **Cold-start UX on instance wake** *(MVP)* | A first request hitting a stopped EC2 instance with no explicit handling looks like a bare timeout or connection error to the user, not "starting up" — jarring for a casual, sporadic user. | Client treats "instance starting" as an explicit, named UI state with its own loading message, distinct from the desktop launcher's own startup screen; test the full boot-to-ready path, not just the warm-path happy case. |
-| **Idle-detection threshold tuning** *(MVP)* | Too aggressive an idle-timeout stops the instance mid-session during a normal pause in usage (e.g. re-reading a scene before the next take), forcing an avoidable cold start; too lax a threshold erodes the cost benefit that's the entire point of this design for MVP. | Treat the idle-timeout value as a tested configuration, tuned against realistic session-gap behaviour, not a default left unexamined. |
+| **Idle-detection threshold tuning** *(MVP)* | Too aggressive an idle-timeout stops the host mid-take/mid-job (a long-running generation or async job with no recent heartbeat yet still legitimately in progress), forcing an avoidable cold start and losing in-flight work at the point of shutdown; too lax a threshold erodes the cost benefit that's the entire point of this design for MVP. | Treat the idle-timeout value as a tested configuration, tuned against realistic session-*and-job* gap behaviour (§4.1's heartbeat design), not a default left unexamined. |
+| **Semaphore-leak risk (avoided by design)** *(MVP)* | A literal acquire/release semaphore for "job in progress" would leak if a job crashed without hitting its release path — the count never returns to zero, the host never stops, silent ongoing cost with nothing to notice it. | Use a last-heartbeat timestamp instead of a counter (§4.1): a dead job's heartbeats simply stop and the timestamp ages out naturally, no explicit cleanup code required. |
+| **Direct-connect timeout tuning** *(MVP)* | The client's direct-connect-first attempt (§4.1) needs a timeout short enough that a genuinely stopped instance doesn't leave the user staring at a hung request, but not so short that a brief network blip gets misread as "stopped," triggering an unnecessary (though harmless-cost-wise) wake-check Lambda call and a spurious "starting up" message. | Tune the direct-connect timeout empirically once real usage exists, same discipline as the idle-detection threshold above; don't ship a guessed default unexamined. |
+| **Residual wake-path abuse after secret leak** *(MVP, accepted)* | A shared secret extracted from the client app (realistic — mobile secrets aren't truly secret) combined with any Google account clears the wake-path gate, allowing scripted repeated `StartInstances` calls (boot-cycling cost/availability griefing), though never data access. | Deliberately accepted rather than closed with a `sub`-allowlist on the Lambda, given the actual threat level at this scale (§7); mitigated instead by a billing alarm as a cheap detection backstop, not prevention. |
+| **`sub` vs. email as the authorization key** *(MVP)* | Keying workspace authorization on email risks a future account takeover if an email address is ever freed and re-registered by someone else under the same address. | Key exclusively on Google's `sub` claim (stable, opaque, non-reassignable per-account identifier), never email, for the EFS workspace lookup (§4.1). |
 | **MVP → Enterprise re-platforming** | Because MVP (bare EC2 process, no ALB) and Enterprise (pooled Fargate fleet behind an ALB, externalized cache) are genuinely different infrastructure, promotion is a real migration project, not a config flip — risk is this being underestimated later because it wasn't flagged early. | Named explicitly here (§4.1) as an accepted, real cost — plan for it as its own piece of work when the time comes, rather than assuming continuity that doesn't exist. |
+| **EFS-IA first-access latency after long idle periods** *(MVP)* | Files moved to the Infrequent Access storage class (§4.2) have marginally higher per-request latency than Standard on first touch — could compound with the instance's own cold-start wait if a session begins right after a long idle stretch, both landing on the same first request. | Acceptable given the small absolute latency delta and that it's already masked behind the explicit "instance starting" UI state (§4.1); worth confirming empirically once real usage exists, not a reason to withhold the IA lifecycle policy. |
 | **Schema duplication between Fastify request contracts and entity JSON Schemas** | Maintaining two parallel schema definitions (API contracts vs. entity-state-schema.md) risks drift as `entity-state-schema.md` evolves. | Generate/derive Fastify route schemas from the same JSON Schema source used for entity validation where the shapes genuinely overlap, rather than hand-authoring both. |
 | **Provider abstraction lock-in risk** | Weaver/MagpieEngine calls are meant to share an OpenAI-compatible provider abstraction (HLD §12.8) regardless of tier — if early implementation hard-codes Bedrock-specific request/response shapes, swapping providers later (a stated goal) becomes an architectural change instead of a config change. | Enforce the OpenAI-compatible interface as the only surface Weaver/MagpieEngine code is allowed to call, with the actual provider (Bedrock, LM Studio, or a future self-hosted vLLM/SGLang endpoint) behind it from day one — even at MVP, even though only one provider is in use. |
 | **Undeclared Vite version drift** | With no version pin recorded, agent-authored setup work could land on a different Vite major version across environments (local dev machine vs. CI) without anyone deciding that on purpose. | Pin explicitly in this document once decided; until then, lockfile-enforced consistency (`pnpm-lock.yaml` committed) is the interim guard, not a substitute for an actual decision. |
@@ -259,16 +378,23 @@ marked Done against MAG-24's original acceptance criteria yet. Resolved in
 this pass (and now propagated to the source docs themselves): Enterprise
 compute (pooled ECS Fargate fleet behind an ALB, with cache externalization
 as a hard pooling prerequisite), MVP compute (single EC2 instance + Elastic
-IP, Lambda-triggered `Stop`/`StartInstances`, no ALB, no container
+IP, self-managed stop + Lambda-Function-URL wake, no ALB, no container
 requirement — cold start explicitly accepted given single-sporadic-user usage
-and cost-minimization priority), the Architecture doc's Enterprise-Scale
-diagram correction, the FileStore→BranchingDataStore rename across
-Architecture/HLD/Glossary, and the removal of the (unnecessary) separate
-desktop-specific `NativeGitFileStore` implementation — `GitDataStore` alone
-now covers Local Desktop as well as Enterprise/Mobile, so that naming
-question is moot rather than open. Remaining before this can be finalised:
-the MVP idle-detection trigger mechanism (§5), Bedrock model selection, and
-the CI/CD provider investigation (ADR-021) — plus the still-open MVP scope
-boundary (ADR-019) that affects how much of the rest is worth locking down
-now. Recommended next step: pick the MVP idle-detection trigger, and track
-the remaining two ADRs to closure before merging this as final.
+and cost-minimization priority), the full wake-path trigger/mechanism/auth
+design (direct-connect-first client flow, shared-secret + Google-ID-token
+gate on the Lambda, billing alarm as the accepted residual-risk backstop),
+MVP user authentication/authorization (Google Sign-In ID-token verification,
+`sub`-keyed EFS workspace lookup, hand-provisioned workspaces — no
+self-service user management in MVP scope), the Architecture doc's
+Enterprise-Scale diagram correction, the FileStore→BranchingDataStore rename
+across Architecture/HLD/Glossary, and the removal of the (unnecessary)
+separate desktop-specific `NativeGitFileStore` implementation —
+`GitDataStore` alone now covers Local Desktop as well as Enterprise/Mobile,
+so that naming question is moot rather than open. Remaining before this can
+be finalised: propagating the "no self-service user management" statement
+into ADR-019 itself (§5 — currently only recorded here), Bedrock model
+selection, and the CI/CD provider investigation (ADR-021) — plus the
+still-open MVP scope boundary (ADR-019) more broadly, which affects how much
+of the rest is worth locking down now. Recommended next step: get the
+ADR-019 propagation done, and track the remaining two ADRs to closure before
+merging this as final.
