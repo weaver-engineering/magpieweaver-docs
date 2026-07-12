@@ -28,6 +28,14 @@ The architecture of the system at enterprise scale, not part of MVP, and the arc
 
 ### Target Production Architecture - Enterprise Scale
 
+> **Correction (post tech-stack.md finalisation):** the diagram below originally showed load-balanced
+> EC2 instances at this tier. That was an error — the confirmed Enterprise-scale compute model is a
+> **pooled ECS Fargate task fleet** behind the ALB (see `docs/specs/tech-stack.md` §4/§6). Isolation
+> between users stays at the Git-workspace/EFS layer, not at the compute layer, so any task in the pool
+> can serve any user's request — **provided** the ElastiCache session/index cache is genuinely
+> externalized first (see the note under the diagram); that externalization is a hard prerequisite for
+> safe task pooling, not an optional optimization.
+
 ```
 ---------------- Local Device ----------------------+----------------- Cloud (e.g. AWS) ------------------------------ 
                                                     |
@@ -35,17 +43,17 @@ The architecture of the system at enterprise scale, not part of MVP, and the arc
 | iOS - Native App + ----------+                    |                                         +--------storage-------+
 +------------------+           |                    |                                         |          EFS         |
                                |                    |                 +---------------+   +-> + (Per user workspaces |
-+----------------------+       |   +- embedded -+   |   +-----+       | EC2 Instance+ |   |   |  & Git repos)        |
-| Android - Native App + ------+-> |     UI     | <---> + ALB + <---> + (TS Service   + <-+   +----------------------+
-+----------------------+       |   | (React/TS) |   |   +-----+       | & Git binary) |   |
-                               |   +-----+------+   |                 +---------------+   |   +--------cache---------+
-+---------------------------+  |                    |                                     +-> +   ElastiCache        |
-| Desktop - magpieweaver.sh + -+                    |                                     |   |   -Memcached-        |
-|   -system tray icon-      |                       |                                     |   | (User session data   |
-+-----cache-----------------+                       |                                     |   | Indexes, Semaphores  |
-|   Map<string,any>         |                       |                                     |   | etc.)                |
-+---------------------------+                       |                 +----LLM----+       |   +----------------------+
-|  TS Service & Git binary  + <-------------------------------------> + Bedrock   + <-----+    
++----------------------+       |   +- embedded -+   |   +-----+       | ECS Fargate   +   |   |  & Git repos)        |
+| Android - Native App + ------+-> |     UI     | <---> + ALB + <---> + (Pooled Task  + <-+   +----------------------+
++----------------------+       |   | (React/TS) |   |   +-----+       |  Fleet: TS    |   |
+                               |   +-----+------+   |                 |  Service &    |   |   +--------cache---------+
++---------------------------+  |                    |                 |  Git binary)  |   +-> +   ElastiCache        |
+| Desktop - magpieweaver.sh + -+                    |                 +---------------+       |   -Memcached-        |
+|   -system tray icon-      |                       |                                         | (User session data   |
++-----cache-----------------+                       |                                         | Indexes, Semaphores  |
+|   Map<string,any>         |                       |                                         | etc. - REQUIRED for  |
++---------------------------+                       |                 +----LLM----+           | safe task pooling)   |
+|  TS Service & Git binary  + <-------------------------------------> + Bedrock   +           +----------------------+
 +-------storage-------------+                       |                 |model - TBD| 
 |      Local FS             |                       |                 +-----------+ 
 +---------------------------+                       |                 
@@ -59,8 +67,10 @@ The architecture of the system at enterprise scale, not part of MVP, and the arc
   - model TBD — see LLM model selection note above
   - pay-per-use
 * Cloud
-  * Load balanced EC2 instances
-    - TS Service (TypeScript service) & Git binaries
+  * ECS Fargate — pooled task fleet behind an ALB
+    - TS Service (TypeScript service) & Git binaries, containerized
+    - any task can serve any user's request (isolation is per-user at the Git-workspace/EFS layer, not per-task)
+    - **requires** the ElastiCache session/index cache to be externalized before pooling is safe (see correction note above) — a task-local cache would let two tasks serving the same user diverge
   * EFS shared storage
     - per user workspaces
   * ElastiCache
@@ -100,6 +110,9 @@ The architecture of the system at enterprise scale, not part of MVP, and the arc
 * Single EC2 instance
   - TS Service (TypeScript service) & Git binaries
   - scale-to-zero
+  - fixed address via an attached Elastic IP (persists across stop/start); a small Lambda triggers
+    `StopInstances`/`StartInstances` on idle detection — see `docs/specs/tech-stack.md` §4.1 for the
+    resolved detail; not re-drawn into the diagram above to keep this doc's diagrams stable
 * EC2-instance-scoped cache
   - map cached session data
 * EFS storage
