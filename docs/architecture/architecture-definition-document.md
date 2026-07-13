@@ -309,7 +309,174 @@ pnpm dev:ui
 Open the UI at the URL printed by step 7, then run the first-run smoke test in the linked doc before starting task work.
 
 ### Guard Rails
-**ToDo** — see task `TBD-02`.
+
+This section consolidates and formalizes the mechanical guardrails that keep
+100% agent-authored **code changes** controlled and aligned with the agreed
+design. It draws together decisions already recorded piecemeal in the
+Development Cycle section above, HLD §11.3/§11.4, ADR-015, and ADR-021 —
+this is the single place they're stated as one coherent set, rather than
+the reader having to reassemble them from three documents.
+
+> **Note on scope — ADR-022 is deliberately not covered here.** MAG-35's own
+> task description lists ADR-022 (Structured PII Linter) as related context,
+> but it's a different category of guardrail entirely: a **runtime**
+> application feature (Weaver's continuity-linting pass and Data Entry
+> save/publish time, per the HLD) that checks narrative *content* users
+> generate, not a CI/CD check gating agent-authored *code* changes before
+> merge. Conflating the two would blur what this section is actually
+> about — controlling the code-change pipeline. ADR-022 remains fully in
+> force; it simply belongs to **MagpieEngine's** runtime design (HLD
+> §12.11), not this section — confirmed over Weaver specifically because
+> nearly all user-authored free text sits in MagpieEngine's domain (Data
+> Entry mode's entity/metadata fields), while Weaver only sees user text
+> indirectly, as scene direction feeding generation; Weaver's
+> continuity-linting pass invokes MagpieEngine's lint utility rather than
+> owning a second copy.
+
+> **Resolved: OpenCode is the correct tool; the HLD's Kiro references were
+> an error, now corrected there too.** OpenCode was confirmed over Kiro
+> specifically because it's model-agnostic — it works with Bedrock in
+> production and local Ollama/LM Studio in dev, matching this project's own
+> multi-tier LLM strategy, rather than tying development tooling to AWS's
+> own models and subscriptions the way Kiro would. One thing this correction
+> surfaced, worth stating plainly rather than silently absorbing: **Kiro
+> genuinely does offer native spec→implement gating out of the box; OpenCode
+> does not.** OpenCode's built-in workflow is a simpler two-state toggle —
+> Plan mode (read-only analysis) and Build mode (full read/write) — not a
+> native three-phase Spec/Test/Build gate. Approximating phase separation in
+> OpenCode itself means configuring custom slash commands and subagent
+> isolation per phase, not relying on an out-of-the-box feature. This makes
+> §2's CI-side mechanical checks the real enforcement mechanism, more so
+> than they would have been under Kiro's native gating — not a backstop to
+> strong IDE-level enforcement, but doing most of the actual work.
+
+**Why mechanical, not judgment-based.** Given 100% agent-authored code,
+there is no separate human line-by-line code review backstop — the
+Spec→Test→Build gate *is* the primary correctness mechanism (HLD §11.3,
+ADR-015). Every guardrail below is designed to be checked by a script or a
+CI status check, not by an architect reading a diff and forming an opinion.
+Where architect judgment is genuinely required (see "Escalation" below), it
+happens at defined checkpoints, not as an ambient backstop.
+
+#### 1. Phase-scoped change permissions
+
+Consolidating the Development Cycle section above into one table — this is
+what each phase's guardrail actually gates on:
+
+| Phase | Owned by | Agent may change | Agent may **not** change |
+|---|---|---|---|
+| **Specification** | Architect | Nothing (agent has no role yet) | N/A — task not yet handed to the agent |
+| **Test** | Agent (architect reviews before commit) | Test package files only | Any implementation code; `task-<REF>.md`/`task-<REF>-spec.md`; any existing test's expected behaviour (see §2's fail-then-pass rule) |
+| **Build** | Agent (architect reviews before commit) | Implementation code only | The test package; `task-<REF>.md`/`task-<REF>-spec.md`; design/spec documentation |
+| **Deploy (deploy-test / deploy-prod)** | CI/CD + architect (UAT/sanity testing) | Nothing — this phase deploys and verifies what Build produced | Everything; this phase is verification, not authorship |
+| **Done** | — | Nothing | — (task closed) |
+
+A task can be reverted to any earlier phase at the architect's discretion
+(Development Cycle section above); reverting resets which of the above
+columns currently applies.
+
+#### 2. Mechanical checks enforced automatically
+
+| Check | Runs at | Enforces | Reference |
+|---|---|---|---|
+| **Commit-scope diff inspection** | Test commit, Build commit | The "Agent may / may not change" boundaries in §1 above — a Test commit touching implementation files, or a Build commit touching the test package or spec docs, fails the check | ADR-015; ADR-021 |
+| **Fail-then-pass test ordering, existing tests immutable** | Test commit (pre-implementation), Build commit (post-implementation) | New tests in the Test commit must **fail** against the pre-existing codebase; **any diff touching a pre-existing test file, or anything outside the test package, fails the check outright** — this is a hard invariant with no built-in automated exception. After the Build commit, **all** tests (new and old) must pass, with no further test edits. In-progress drafting/revision of *this task's new tests* is unrestricted before the final commit — intermediate commits are squashed into one before the gate evaluates anything, so the gate only ever diffs the final squashed Test commit against mainline's prior state, never the agent's own iteration history | HLD §11.3; ADR-015; ADR-021 |
+| **Diff-scoped coverage thresholds** | Build commit | ~80–85% overall codebase coverage; **95%+ on new/changed lines specifically** (diff coverage, not whole-file) — avoids penalizing an agent for pre-existing untested code in a touched file | HLD §11.3 |
+| **"Unicorn linter" (weak-but-passing test detection)** | Test commit, Build commit | Flags code/tests built on literal-value checks disconnected from the component's natural behaviour — a test that passes mechanically without actually exercising the requirement it claims to cover | HLD §11.3 |
+| **Small-change fast path** | Task start | Changes that don't require altering existing tests and still pass coverage checks may skip the full three-gate cycle and go straight to implementation | HLD §11.3 |
+| **Branch protection / required status checks** | Every PR/merge attempt | Makes every check above an actual merge precondition, not an advisory one | ADR-021 |
+| **Squash-on-merge** | Merge to mainline | The three phase-scoped commits (Spec/Test/Build) are squashed into one on merge — a deliberate tradeoff of detailed gate-level forensics (which live in the per-task doc files, HLD §11.4) for a clean mainline history | ADR-015; HLD §11.4 |
+
+**Status of implementation, not just design:** ADR-021 confirmed GitHub
+Actions is *capable* of enforcing every check above (via required status
+checks, scripted commit-diff inspection, and structured test-result
+ingestion) — it did not confirm these scripts already exist. Building and
+maintaining them is separate, tracked engineering work
+(`docs/specs/tech-stack.md`), not something this section can claim is
+already running.
+
+**A deliberate wrinkle, not a gap: pre-existing tests are truly immutable
+to this gate.** An earlier draft of this section (and of HLD §11.3) assumed
+a "reviewed test-branch gated by a linter confirming concurrence with the
+spec" could safely permit an existing test's expected output to change.
+That mechanism doesn't actually work: an automated linter judging whether a
+test change "matches updated intent" would be making exactly the kind of
+semantic judgment call this entire gate model exists to avoid trusting to
+automation — an agent could get an automated pass to weaken a
+regression-protection test simply by phrasing the change as spec-compliant.
+The correct model is simpler and stricter: **the check has no built-in
+exception path.** If a pre-existing test genuinely needs to change, the
+gate **will always fail**, by design. The only way through is the
+architect's manual override (§3 below) — and that override should itself
+be preceded by its own Specification-phase task revising the relevant
+spec to justify the change, giving the same documented paper trail every
+other change gets, rather than a bespoke automated carve-out.
+
+#### 3. Escalation — how violations are surfaced to the architect
+
+Given this project's actual scale (a single architect working with an
+agent, not a team), surfacing is deliberately simple rather than a
+notification system:
+
+- **Mechanical check failures** appear as a failed required status check on
+  the PR/branch (visible directly in GitHub) — the merge is blocked at the
+  platform level; there is no separate alerting channel to build or
+  maintain.
+- **Task-state visibility:** each task's `task-<REF>.md` state (Specified →
+  Tested → Done, HLD §11.4) only advances when its corresponding gate
+  passes — a task stuck on a failing check simply doesn't advance state,
+  which is itself the visible signal to the architect reviewing Linear.
+- **Architect review remains the explicit checkpoint at every phase
+  transition** (Development Cycle section above: "once the architect is
+  content that..." at both the Test→Build and Build→Deploy transitions) —
+  mechanical checks are a precondition for that review, not a replacement
+  for it.
+- **Manual override** remains available to the architect throughout (§4
+  below; HLD §11.3) — an admin bypass of a required status check, used at
+  the architect's discretion. Two distinct cases warrant it: a check's
+  failure being itself wrong (rare), and the deliberate, expected case of a
+  genuinely necessary pre-existing-test change (§2 above) — always
+  preceded by its own spec-revision task, never a bare override with no
+  accompanying justification on record.
+
+#### 4. IDE-level support (OpenCode)
+
+**OpenCode** is intended to keep the agent working within phase boundaries
+as it works, ahead of §2's mechanical checks acting as the actual
+enforcement backstop. OpenCode does not provide native three-phase
+Spec/Test/Build gating (see the resolved note above) — its own built-in
+modes are a simpler Plan (read-only analysis) / Build (full read/write)
+toggle. The practical configuration for this project's phase model:
+
+- **Plan mode** for the Specification phase (architect-owned; agent has no
+  editing role yet, so read-only analysis is a natural fit if the agent is
+  consulted at all during this phase).
+- **Build mode**, scoped per phase via **custom slash commands** (e.g. a
+  project-defined `/test-phase` command instructing the agent to touch only
+  the test package, and a `/build-phase` command instructing it to touch
+  only implementation) — this is configuration this project defines, not an
+  OpenCode feature that enforces the boundary on its own.
+- **Subagent isolation** (`subtask: true`) is available to force a given
+  phase's work into its own isolated context, which may help keep a Test-
+  phase agent invocation from "seeing" or being tempted to touch
+  implementation code it hasn't been asked to change — worth evaluating
+  during actual pipeline build-out, not assumed effective here.
+- **Git-backed snapshots** (OpenCode creates one on every meaningful change)
+  give a fine-grained undo/redo trail during a single phase's work, useful
+  for the architect's in-phase review before a phase's commit is finalized
+  — distinct from, and in addition to, the three-commit-per-task structure
+  itself (HLD §11.4).
+- **LSP integration** (real-time compiler diagnostics fed back to the
+  model) supports faster self-correction during the Build phase
+  specifically — reduces the number of Build-phase iterations needed before
+  the mechanical checks in §2 are run, though it doesn't substitute for them.
+
+None of the above is a hard boundary — per the resolved note above, the
+guardrail that actually holds is the mechanical CI-side check in §2, not
+OpenCode's own workflow state. This subsection describes how OpenCode is
+configured to *support* working within phase boundaries, not what enforces
+them. Detailed configuration (exact command definitions, agent frontmatter)
+belongs in the "OpenCode Configuration" section below, once written.
 
 ### Security & Secrets Management
 **ToDo** — see task `TBD-03`.
@@ -340,6 +507,14 @@ define the rollback procedure and who/what triggers it.
 
 ### OpenCode Configuration
 **TBC** — see task `TBD-07`.
+
+> **Note:** OpenCode is confirmed as the correct tool (see the Guard Rails
+> section above, §4) — the earlier naming conflict with the HLD's Kiro
+> references has been resolved and corrected in both documents. This
+> section still needs the actual configuration detail: custom slash-command
+> definitions for phase-scoped work, subagent/`subtask` configuration, and
+> LSP setup per language — sketched at a high level in Guard Rails §4, not
+> yet specified in full here.
 
 ### Observability & Monitoring
 **ToDo** — see task `TBD-08`.

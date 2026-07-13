@@ -69,7 +69,7 @@ for its dependents' tags — check the dependency chain.
 |------------------------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **GitDataStore**                   | Yes, including **per-user isolation**, **scale-to-zero**, Excluding **Scale-up** | [doc](components/git-data-store/git-data-store-hld.md)                                     | — (foundational; no dependencies on other components in this table)                                                                                                                                                                                                               |
 | **MagpieEngine**                   | Yes                                                                              | [doc](components/magpie-engine/magpie-engine-hld.md)                                       | BranchingDataStore/GitDataStore (§6) for entity/lore reads; Entity State Schema (ADR-017/018)                                                                                                                                                                                              |
-| **Weaver**                         | Yes                                                                              | [doc](components/weaver/weaver-hld.md)                                                     | MagpieEngine (consumes assembled context, §4 stage 1); LLM provider abstraction (§12.8)                                                                                                                                                                                           |
+| **Weaver**                         | Yes                                                                              | [doc](components/weaver/weaver-hld.md)                                                     | MagpieEngine (consumes assembled context, §4 stage 1; also invokes MagpieEngine's structured PII lint utility during continuity linting rather than owning a second copy, §12.11); LLM provider abstraction (§12.8)                                                                                                                                                                                           |
 | **Job Execution Substrate**        | **Yes**                                                                          | [doc](components/job-execution-substrate/job-execution-substrate-hld.md)                   | BranchingDataStore/GitDataStore (branch isolation invariant) — the shared low-level durability layer described in §10: event-level checkpoint/resume, branch-scoped write isolation, continuity-lint circuit breaker. Not client-connection-dependent. Both rows below sit on top of this. |
 | **Scene Director**                 | Yes                                                                              | [doc](components/scene-director/scene-director-hld.md)                                     | Weaver (drives the generation pipeline per take); MagpieEngine (state read/write); **Job Execution Substrate** (a take is a job with a live chat session attached, §10.1 — this dependency is real at MVP, not deferred)                                                          |
 | **Async Job Execution System**     | No                                                                               | [doc](components/async-job-execution-system/async-job-execution-hld.md)                    | **Job Execution Substrate** (adds queuing/dispatch on top — SQS or filesystem-persisted queue); Weaver (headless regen / prose correction both call the LLM pipeline)                                                                                                             |
@@ -410,11 +410,26 @@ backstop), so rigor here is accepted as worth a velocity cost.
   agent to suit an implementation.
 - **Mechanical gate, not judgment-based:** for a given change, new tests must
   fail against the pre-implementation code and old tests must keep passing
-  unchanged; after implementation, all tests (new and old) must pass without
-  further test edits. Where a change legitimately alters an existing test's
-  expected output, that test-file change goes through its own reviewed
-  test-branch, gated by a linter asserting the test change concurs with the
-  spec.
+  **unchanged — this is a hard invariant with no built-in automated
+  exception path.** After implementation, all tests (new and old) must pass
+  without further test edits. **Correction from an earlier draft:** this
+  section previously described a "reviewed test-branch gated by a linter
+  asserting the test change concurs with the spec" as the path for a
+  legitimate existing-test change. That doesn't actually work — an
+  automated linter judging whether a test change "matches updated intent"
+  would itself be exactly the kind of semantic judgment call this gate
+  model exists to avoid trusting to automation, and would let an agent
+  weaken a regression-protection test simply by phrasing the change as
+  spec-compliant. **The correct model:** if a pre-existing test genuinely
+  needs to change, the mechanical gate will always fail, by design — the
+  only way through is the architect's manual override (Architecture doc's
+  Guard Rails section), preceded by its own Specification-phase task
+  revising the relevant spec, giving the same documented paper trail every
+  other change gets rather than a bespoke automated carve-out. In-progress
+  drafting of *new* tests within an as-yet-uncommitted Test phase is
+  unrestricted — intermediate commits are squashed into one before the gate
+  evaluates anything, so the gate only ever diffs the final Test commit
+  against mainline's prior state, never the agent's own iteration history.
 - **Coverage thresholds, diff-scoped:** ~80–85% overall codebase coverage,
   95%+ on new/changed lines specifically (line/diff coverage, not whole-file
   coverage — avoids penalizing an agent for pre-existing untested code in a
@@ -427,15 +442,29 @@ backstop), so rigor here is accepted as worth a velocity cost.
 - **Small changes:** changes that don't require altering existing tests but
   still pass coverage checks can go straight to implementation, skipping the
   full three-gate cycle.
-- **Tooling:** Kiro is the intended IDE, chosen for native spec/test/implement
-  gating support.
-- **Kiro fallback note (new):** since the gate model depends on IDE-level
-  enforcement, and many "agentic IDE" gating features are workflow
-  conventions rather than hard sandboxed boundaries, the pipeline itself
-  should independently reject a PR where Spec/Test/Act commits aren't
-  cleanly separated — a CI-side backstop that doesn't depend on Kiro's
-  specific enforcement behavior, and keeps the gate resilient to a future
-  IDE change.
+- **Tooling (corrected — was previously mis-recorded as Kiro):** **OpenCode**
+  is the intended IDE — model-agnostic (works with Bedrock in production and
+  local Ollama/LM Studio in dev, matching this project's own multi-tier LLM
+  strategy, §12.8, rather than locking to one provider the way AWS's Kiro
+  would), open-source, and terminal-native.
+- **Honest capability note, not just a naming fix:** unlike Kiro (which
+  offers native spec→implement gating out of the box), OpenCode's built-in
+  workflow is a simpler two-state toggle — **Plan mode** (read-only
+  analysis) and **Build mode** (full read/write) — not a native three-phase
+  Spec/Test/Build gate. Approximating phase separation in OpenCode itself
+  means configuring custom slash commands and subagent isolation
+  (`subtask: true`) per phase, rather than relying on an out-of-the-box
+  feature. This makes the CI-side mechanical checks (Architecture doc's
+  Guard Rails section) the real enforcement mechanism more than they would
+  have been under Kiro's native gating — not merely a backstop to strong
+  IDE-level enforcement, but doing most of the actual work.
+- **Fallback note:** since the gate model can't fully depend on IDE-level
+  enforcement — OpenCode's Plan/Build toggle, like any "agentic IDE" gating
+  feature, is a workflow convention rather than a hard sandboxed boundary —
+  the pipeline itself independently rejects a PR where Spec/Test/Act commits
+  aren't cleanly separated: a CI-side backstop that doesn't depend on the
+  IDE's specific enforcement behavior, and keeps the gate resilient to a
+  future IDE change.
 - Manual pipeline override remains available to the author throughout.
 
 ### 11.4 Monorepo Consequence Management (resolved)
@@ -649,10 +678,19 @@ override with the stated acknowledgment *"By overriding, you are confirming
 that the flagged content is narrative detail and does not reflect a real
 person."* This preserves legitimate cases (epistolary fiction, a plot-device
 phishing email/burner number, an on-page birthdate reveal) without silent
-bypass. Runs as a lint pass alongside continuity linting (§4/Weaver's
-generation pipeline) and at Data Entry save/publish time. Explicitly a first
-line of defense, not a complete solution — it cannot detect descriptive
-identification of a real person that doesn't use these four patterns.
+bypass. **Owned by MagpieEngine** (corrected from an earlier draft that
+implied Weaver): the user-authored free-text surface area is overwhelmingly
+MagpieEngine's domain (nearly all user-entered entity/metadata fields —
+character sheets, lore, etc. — are direct text entry, per Data Entry mode,
+§6.1), whereas Weaver only sees user-authored text indirectly, as scene
+direction feeding generation — a small fraction of its overall
+responsibility by comparison. Runs at two call sites, both invoking the
+same MagpieEngine-owned lint utility rather than duplicating it: (1)
+MagpieEngine's own Data Entry save/publish path directly, and (2) Weaver's
+continuity-linting pass (§4), which calls into MagpieEngine's lint rather
+than implementing a second copy. Explicitly a first line of defense, not a
+complete solution — it cannot detect descriptive identification of a real
+person that doesn't use these four patterns.
 
 **Account PII (distinct from the structured-field lint above — added per
 tech-stack.md §4.1/§6):** the structured-field lint and ADR-022 govern
