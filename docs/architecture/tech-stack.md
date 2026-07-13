@@ -110,7 +110,9 @@ for the compute-model discrepancy this document cannot resolve).
   §4.2). EFS backs per-user Git workspaces (see §4.2 below for why EFS is
   used at MVP too, not just Enterprise); ElastiCache (Memcached) backs
   session/index caching; Bedrock is the target LLM provider for production
-  (model TBD — see §5).
+  (model TBD — final selection is a dedicated evaluation task, out of scope
+  for project initialisation; see `docs/specs/llm-evaluation-candidates.md`
+  for the candidate shortlist that feeds that future evaluation).
 - **Confirmed at MVP scale:** **no ALB, no Fargate.** A single EC2 instance
   with an attached **Elastic IP** (fixed address, persists across stop/start),
   minimal compute/RAM, and EFS for storage — matching the Architecture doc's
@@ -212,12 +214,54 @@ convenience access) at minimum ongoing AWS cost.
     identifier — **not** email, which can change or be reassigned) has a
     corresponding workspace directory on EFS. This reuses the per-user
     workspace model that already exists for data isolation, rather than
-    inventing a second authorization mechanism. **For MVP, workspace
-    creation is hand-provisioned by the operator, not self-service** — there
-    is no signup flow, no "create workspace" UI, and no user-management
-    system of any kind. This is a genuine MVP-scope boundary (relevant to
-    ADR-019, not just this document) worth stating plainly rather than
-    letting "auth exists" be read as "user management exists."
+    inventing a second authorization mechanism.
+  - **Onboarding is self-service, not hand-provisioned — correction from an
+    earlier draft.** A `sub` with no existing workspace is not rejected;
+    instead the user is prompted through a first-run flow: accept Terms &
+    Conditions, then the backend creates the workspace directory and writes
+    a `user.json` containing `firstName`, `lastName`, `emailAddress` (each
+    **encrypted at rest**) and a `termsAndConditions` record — `{ accepted:
+    true, auth: "<the OAuth token active in the accepting session>",
+    acceptedAt: "<ISO-8601 timestamp>", version: "<major.minor.point>" }`.
+    The `acceptedAt` timestamp is deliberately stored alongside the raw
+    token: Google ID tokens are short-lived and signed against a JWKS that
+    rotates over time, so the token's *signature* may become unverifiable
+    long after the fact even though the string itself persists — the
+    timestamp gives a format-independent record of *when* consent was given,
+    independent of whether the token can still be cryptographically checked
+    years later.
+  - **Bounding self-service onboarding's cost/abuse exposure (resolved):**
+    unrestricted self-service creation means any Google account holder who
+    reaches the running instance directly (not through the wake path, whose
+    shared-secret gate only protects the stopped→running transition, above)
+    could create a workspace. Two separate controls bound the two different
+    things actually at risk here, rather than one mechanism trying to do
+    both:
+    - **Storage:** an EFS usage quota per user (flat for MVP; tiered quotas
+      are a natural later extension). Bounds the cost of unrestricted
+      workspace creation to capped storage, not unbounded storage.
+    - **LLM spend (the genuinely expensive risk):** a manual `llmEnabled:
+      true` boolean field in `user.json`, defaulted to `false`/absent on
+      self-service creation. A newly self-onboarded workspace exists but
+      cannot trigger LLM calls until the operator manually sets this flag
+      for that specific user — appropriate given MVP's actual user count,
+      and a deliberate manual gate rather than an automated one.
+  - **Encryption key sourcing:** the static key used to encrypt those three
+    fields is fetched from **SSM Parameter Store as a `SecureString`** at
+    instance boot (the instance's IAM role calls `get-parameter
+    --with-decryption` in user-data), not baked into an AMI or user-data
+    script in plaintext. SSM `SecureString` is itself KMS-encrypted at rest
+    and free at standard-parameter tier, so the key exists in plaintext only
+    in the running process's memory, never on disk or in version control.
+  - **This is the only place Magpie Weaver stores PII**, and it's a
+    genuinely different category from ADR-022's narrative-content PII lint
+    (a character's email address appearing *in prose*, hard-blocked by
+    default) — this is the real, authenticated account holder's own data,
+    deliberately stored with explicit consent tracking. `llmEnabled` itself
+    is not PII, but lives in the same file. Worth keeping these
+    two conceptually separate rather than conflated, since they have
+    different threat models and different handling rules. See the flag added
+    to HLD §12.11 for this.
 - **Cold start accepted, not engineered away.** Booting a stopped instance
   and having the TS Service come up is a one-time per-session wait for a
   single sporadic user (your daughter) — explicitly worth it for near-zero
@@ -305,16 +349,16 @@ user base to build for.
 
 ## 5. Open Items Blocking Finalisation
 
-This document cannot honestly claim MAG-24's acceptance criteria are fully
-met while the following remain unresolved. Recording them here rather than
-papering over them:
-
-| Item | Why it blocks a locked matrix |
-|---|---|
-| **ADR-019 propagation: "no self-service user management at MVP"** | §4.1 resolved the auth design in a way that produces an explicit MVP-scope statement (hand-provisioned workspaces only, no signup/user-management system). This is genuinely ADR-019 content, not just a tech-stack detail — it should be reflected there directly rather than living only in this document, or a reader of ADR-019 alone will miss it. Not fixed here since ADR-019 is a separate document this task doesn't own. |
-| **Bedrock model selection** | Every architecture diagram marks the Bedrock model as "TBD" and explicitly defers this to its own ADR (Architecture doc, LLM model selection note). HLD §12.8 similarly says no candidate model at any tier is locked. Cannot version-pin what hasn't been chosen. |
-| **CI/CD provider (ADR-021)** | GitHub Actions is the *intended* provider but is recorded as open, pending investigation into whether it can actually enforce the Spec/Test/Act commit-level gate (HLD §11.10). The matrix row exists but should be labelled "proposed," not "chosen," until that investigation closes. |
-| **MVP scope boundary (ADR-019)** | Still open per both source docs. This affects which rows of the matrix are "must be finalised now" vs. "can stay provisional" — e.g., mobile-native tooling is deferred regardless of stack choice once ADR-019 confirms MVP is Android-only, limited-user scope. |
+**None remain.** This section is kept (rather than deleted) as a record
+that every item it once listed was actually resolved, not silently dropped:
+Enterprise/MVP compute model, storage, authentication/authorization,
+account-PII handling (ADR-023), the Desktop Backend Process Lifecycle
+question, LLM model selection (deferred with a candidate shortlist, per
+ADR-019), the MVP scope boundary itself (ADR-019, Approved), and finally the
+CI/CD provider (ADR-021, Approved — GitHub Actions confirmed as
+sufficient for this project's specific gate-enforcement needs; the
+gate-enforcement scripts themselves remain a separate follow-up
+implementation task, not a blocker to this document).
 
 ---
 
@@ -333,17 +377,20 @@ papering over them:
 | Shared storage | AWS EFS, Elastic throughput, IA lifecycle policy enabled | — | §4.2: used from MVP onward (not just Enterprise) specifically to avoid a data-migration step at promotion — only compute changes at that point, not where data lives. Elastic throughput and IA lifecycle both chosen to match the sporadic, pay-per-use usage pattern; cost premium over EBS is real but immaterial at actual MVP data volume (a few dollars/month, not a fixed-cost trap like the ALB/NAT costs avoided elsewhere). |
 | Session/index cache (Enterprise scale-up) | ElastiCache (Memcached) | — | Architecture doc Enterprise diagram; explicitly **not MVP** (HLD §1a — scale-up excluded from MVP). |
 | Session/index cache (MVP/Test/Dev) | In-process `Map<string, any>` | — | Architecture doc MVP/Test/Dev diagrams; ADR-010, ADR-016. |
-| LLM provider (target) | AWS Bedrock | **model TBD** | Both source docs mark this explicitly unresolved; own ADR required. |
+| LLM provider (target) | AWS Bedrock | **model TBD — candidate shortlist established** | Final selection is a dedicated evaluation task, out of scope for project initialisation and independent of every other stack choice in this document. See `docs/specs/llm-evaluation-candidates.md` for the top-5 shortlist (input to that evaluation, not a decision). |
 | LLM provider (local dev) | LM Studio (or Ollama/llama.cpp per HLD §12.8 candidates) | model TBD (e.g. Phi-4-mini, Qwen3 8B candidates, unpinned) | Architecture doc Development Architecture diagram; HLD §12.8 sizing table. |
 | Data store contract | `GitDataStore` implementing `BranchingDataStore` interface | — (interface still draft, HLD §5) | ADR-004, ADR-006; not yet finalised — HLD itself labels the interface a draft. Renamed from the earlier "FileStore" naming; the rename is now propagated across Architecture, HLD, and Glossary. There is no separate desktop-specific implementation — `GitDataStore` alone covers all surfaces, so the earlier `NativeGitFileStore` naming question is now moot rather than open (§2, §5). |
 | Test-only data store | `MockDataStore` | — | HLD §5; zero-dependency in-memory CI implementation. |
 | Wake-on-demand path (MVP scale-to-zero) | AWS Lambda + Function URL, calling EC2 `StartInstances`; stop is self-managed by the TS Service calling `StopInstances` on itself | — | §4.1: fully resolved — trigger (client direct-connect-first, Lambda fallback only), mechanism (plain EC2 API, no ECS), and auth (below) are all decided. Function URL chosen over API Gateway: no fixed hourly cost, free tier covers this workload's volume. |
 | Idle-stop signal (MVP) | Last-heartbeat timestamp, refreshed by client sessions and by in-progress job heartbeats; watchdog checks staleness | — | §4.1: request-activity-only idle detection would kill a quiet-but-alive Scene Director take or async job; a self-healing timestamp (vs. a leak-prone acquire/release semaphore) requires the Job Execution Substrate to emit heartbeats — see the companion note. |
 | User authentication | Google Sign-In (OAuth ID token), verified via `google-auth-library` | — | §4.1: minimal backend for MVP — stateless per-request token verification, no Cognito/DynamoDB/session store required. Same verification logic reused by both the TS Service and the wake-path Lambda. |
-| User authorization | `sub`-keyed EFS workspace lookup (TS Service only) | — | §4.1: reuses the existing per-user workspace model as the authorization source; keyed on Google's `sub` claim specifically, not email (email can change/be reassigned). Workspace creation is hand-provisioned for MVP — no self-service signup (ADR-019-relevant, §5). |
+| User authorization | `sub`-keyed EFS workspace lookup (TS Service only) | — | §4.1: reuses the existing per-user workspace model as the authorization source; keyed on Google's `sub` claim specifically, not email (email can change/be reassigned). Onboarding is **self-service** — a `sub` with no workspace triggers first-run Terms & Conditions acceptance + workspace creation, not operator hand-provisioning (corrected from an earlier draft). |
+| Account PII storage | `user.json` per workspace: `firstName`/`lastName`/`emailAddress`, encrypted at rest | — | §4.1: the only place Magpie Weaver stores PII; distinct in kind from ADR-022's narrative-content PII lint — this is real account-holder data with explicit consent tracking, not narrative prose. Now reflected in HLD §11.11, including the resolved (non-Git-tracked) storage location. |
+| Self-service onboarding cost/abuse gating | Per-user EFS quota (storage) + manual `llmEnabled` flag in `user.json` (LLM spend) | — | §4.1: two separate controls for two different risks — unrestricted self-service workspace creation is bounded to capped storage; LLM spend requires an explicit, manual operator flag per user, appropriate at MVP's actual user count. |
+| PII encryption key sourcing | AWS SSM Parameter Store (`SecureString`), fetched at instance boot | — | §4.1: static key never lives in plaintext outside the running process's memory — not baked into an AMI or user-data script. Free at standard-parameter tier, itself KMS-encrypted at rest. |
 | Wake-path access control | Shared secret (client-bundled) + valid Google ID token, both required | — | §4.1/§7: narrow gate blocking blind/automated Function URL discovery only — explicitly not the data-access boundary, which lives entirely in the backend's `sub`/workspace check above. Residual risk (a targeted actor extracting the secret can still wake the instance, same bar as a legitimate app user) is accepted; see §7 for the billing-alarm mitigation. |
 | Cost-abuse backstop | AWS Billing/CloudWatch alarm on a small spend threshold | — | §7: cheaper and simpler than adding a `sub`-allowlist to the wake-path Lambda; catches the residual boot-cycling/griefing risk the shared secret doesn't fully close. |
-| CI/CD provider | GitHub Actions (**proposed, not confirmed**) | — | ADR-021, open pending investigation (HLD §11.10). |
+| CI/CD provider | GitHub Actions (**confirmed**) | — | ADR-021, Approved (HLD §11.10) — confirmed sufficient via required status checks, scripted commit-diff inspection, and structured test-result ingestion; gate-enforcement scripts themselves are separate follow-up work. |
 | Local observability | OpenObserve | — | ADR-020; HLD §11.9. |
 | Ticketing/task tracking | Linear | — | Architecture doc, Task Tracking section. |
 
@@ -373,28 +420,49 @@ papering over them:
 
 ## 8. Task Status
 
-Per the note in §0 and the open items in §5, this document should **not** be
-marked Done against MAG-24's original acceptance criteria yet. Resolved in
-this pass (and now propagated to the source docs themselves): Enterprise
-compute (pooled ECS Fargate fleet behind an ALB, with cache externalization
-as a hard pooling prerequisite), MVP compute (single EC2 instance + Elastic
-IP, self-managed stop + Lambda-Function-URL wake, no ALB, no container
-requirement — cold start explicitly accepted given single-sporadic-user usage
-and cost-minimization priority), the full wake-path trigger/mechanism/auth
-design (direct-connect-first client flow, shared-secret + Google-ID-token
-gate on the Lambda, billing alarm as the accepted residual-risk backstop),
-MVP user authentication/authorization (Google Sign-In ID-token verification,
-`sub`-keyed EFS workspace lookup, hand-provisioned workspaces — no
-self-service user management in MVP scope), the Architecture doc's
-Enterprise-Scale diagram correction, the FileStore→BranchingDataStore rename
-across Architecture/HLD/Glossary, and the removal of the (unnecessary)
-separate desktop-specific `NativeGitFileStore` implementation —
-`GitDataStore` alone now covers Local Desktop as well as Enterprise/Mobile,
-so that naming question is moot rather than open. Remaining before this can
-be finalised: propagating the "no self-service user management" statement
-into ADR-019 itself (§5 — currently only recorded here), Bedrock model
-selection, and the CI/CD provider investigation (ADR-021) — plus the
-still-open MVP scope boundary (ADR-019) more broadly, which affects how much
-of the rest is worth locking down now. Recommended next step: get the
-ADR-019 propagation done, and track the remaining two ADRs to closure before
-merging this as final.
+**Done.** All items originally tracked in §5 are resolved, and every one is
+reflected in the source documents themselves, not left living only in this
+file:
+
+- **Compute:** Enterprise (pooled ECS Fargate fleet behind an ALB, cache
+  externalization as a hard pooling prerequisite) and MVP (single EC2
+  instance + Elastic IP, self-managed heartbeat-based stop, Lambda-Function-
+  URL wake, no ALB, no container requirement) — genuinely different shapes,
+  with the promotion cost between them explicitly accepted rather than
+  assumed away.
+- **Storage:** EFS from MVP onward (not EBS), Elastic throughput, IA
+  lifecycle policy — chosen to avoid a data migration at promotion, not for
+  cost, which is a wash at this scale.
+- **Auth, authorization, and account PII:** Google Sign-In, `sub`-keyed EFS
+  workspace authorization, self-service onboarding bounded by an EFS quota
+  and a manual `llmEnabled` gate on LLM spend specifically — now formally
+  recorded in its own **ADR-023**.
+- **Naming/documentation corrections:** the Architecture doc's
+  Enterprise-Scale diagram (EC2 → Fargate), the FileStore→BranchingDataStore
+  rename across Architecture/HLD/Glossary, and the removal of the
+  unnecessary desktop-specific `NativeGitFileStore` implementation.
+- **Desktop Backend Process Lifecycle** (HLD §11.1): explicit tray-icon quit
+  only, no idle self-exit — and, per ADR-019, correctly filed as
+  Enterprise-scope work rather than MVP work.
+- **LLM model selection:** deliberately deferred as an independent
+  evaluation task with no bearing on any other stack element; a five-model
+  candidate shortlist is recorded separately in
+  `docs/specs/llm-evaluation-candidates.md` as the starting point for that
+  future evaluation.
+- **MVP scope boundary:** finalized and Approved as **ADR-019**, consolidating
+  every MVP-scope decision above (and resolving the Desktop Mode scope
+  question this document's own analysis surfaced) into one authoritative
+  record.
+- **CI/CD provider:** finalized and Approved as **ADR-021** — GitHub Actions
+  confirmed sufficient for this project's specific gate-enforcement
+  requirements (HLD §11.3/§11.10), via required status checks, scripted
+  commit-diff inspection, and structured test-result ingestion. The
+  gate-enforcement scripts themselves remain real, separate follow-up
+  engineering work, tracked outside this document.
+
+MAG-24's acceptance criteria — a technology matrix with version pins and
+rationale, identified bottlenecks with mitigations, and an approved spec — are
+met. Recommended next steps, all outside this document's scope: build the
+CI/CD gate-enforcement pipeline itself (ADR-021), and hand
+`docs/specs/llm-evaluation-candidates.md` off as the starting point for the
+separate LLM evaluation task.

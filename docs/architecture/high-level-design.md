@@ -3,7 +3,7 @@
 - [Glossary](../glossary.md) - Glossary of terms.
 - [About Magpie Weaver](../magpie-weaver.md) - Background reading about Magpie Weaver.
 - [Architecture Definition](architecture-definition-document.md) - Magpie Weaver Architecture.
-- [WorkflowDesignSummary](workflow-design-summary) - An overview the Magpie Weaver workflow
+
 - Magpie Weaver is architected as a single TypeScript pnpm monorepo powering
   three client surfaces — **Enterprise Cloud** (primary, mobile-first),
   **Local Desktop** (convenience), and a **Mobile app** (thin client of the
@@ -366,10 +366,31 @@ this: the Rust IPC bridge risk, resolved by removing Tauri per §5.1).
 
 ## 11. Sections Requiring Further Detail
 
-### 11.1 Desktop Backend Process Lifecycle
-**TODO:** What stops the local backend when the user is "done" — explicit
-quit action, idle-timeout self-exit, or tray-icon-managed process? Needs an
-answer to avoid orphaned background processes, particularly on Windows.
+### 11.1 Desktop Backend Process Lifecycle — Resolved
+
+**Resolved:** explicit quit only, via the tray icon — **no idle-timeout
+self-exit for Local Desktop.** `MagpieWeaverApp` (the tray-icon launcher,
+ADR-012) stops the local TS Service and the local OpenObserve process
+(§11.9) together, only when the user chooses "Quit" from the tray icon. No
+background watchdog silently terminates the process on its own.
+
+This was a deliberate simplification, not an oversight: an idle-timeout
+self-exit was considered (the same heartbeat-based approach used for the
+Enterprise-scale EC2 host's scale-to-zero, `docs/specs/tech-stack.md` §4.1,
+would translate directly) and rejected specifically for Local Desktop —
+a tray icon that can quietly quit on its own is confusing UX (the user has
+no clear mental model of why or when it stopped), and for a developer
+running this locally during agent-authored development work, an
+unpredictable self-exit mid-session is actively counterproductive rather
+than neutral. Cost pressure — the reason idle self-exit is worth the
+complexity at Enterprise/cloud scale — simply doesn't apply locally, so
+there's nothing on the other side of the tradeoff to justify it here.
+
+This resolves the "orphaned background process on Windows" concern the
+original open item was raised to address: since there's now exactly one
+way the process stops (explicit tray "Quit"), there's no ambiguity about
+whether it's still running, and no silent-exit path to leave the user
+uncertain either way.
 
 ### 11.2 Rust/Native Shell — Resolved, Noting for Traceability
 Resolved: the Tauri/Rust IPC bridge has been removed from the design (§5.1);
@@ -529,7 +550,13 @@ There are four distinct usage tiers, each with a different cost/quality
 tradeoff. **None of the specific models below are locked in** — this is a
 snapshot to size the decision, current as of mid-2026; expect this to be
 revisited close to each tier's actual build-out, since pricing and model
-quality in this space move quickly.
+quality in this space move quickly. **For the MVP/production tier
+specifically, see `docs/specs/llm-evaluation-candidates.md`** — a five-model
+shortlist (all confirmed available on Bedrock, matching the confirmed
+provider from `docs/specs/tech-stack.md` §4) intended as the starting input
+for a dedicated evaluation task, not a decision. That evaluation is
+deliberately out of scope for project initialisation, since model choice
+has no bearing on any other element of the stack.
 
 | Tier                                            | Need                                                                                                                                                                    | Candidate approach                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 |-------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -581,7 +608,7 @@ per call, continuity-lint pass/fail rate, circuit-breaker trip rate) before
 this is fully locked — the tool choice is made, but the exact dashboard/metric
 definitions are not yet specified.
 
-### 11.10 CI/CD Pipeline (provider chosen, open pending investigation)
+### 11.10 CI/CD Pipeline (provider confirmed; enforcement scripts still to build)
 
 The CI/CD pipeline is where the development-gate guardrails (§12.3/ADR-015)
 are actually enforced — no code/test changes on a spec commit, no spec/code
@@ -590,19 +617,26 @@ post-implementation, etc. Running these checks as a local script was
 explicitly rejected: it would share a trust boundary with the agent doing
 the work, undermining the purpose of an independent gate.
 
-**GitHub Actions** is the intended CI provider (ADR-021), integrated with
-branch protection so gate-passage is an actual merge precondition. This is
-recorded as **open, pending investigation** — see the companion
-investigation task — since GitHub Actions' fitness for the *specific* checks
-required (commit-level diff inspection across Spec/Test/Act, enforcing the
-fail-then-pass test ordering) hasn't been confirmed, only assumed.
+**GitHub Actions is confirmed as the CI provider (ADR-021, now Approved),**
+integrated with branch protection so gate-passage is an actual merge
+precondition. The investigation resolved that no CI platform ships this gate
+model natively — it's inherently bespoke pipeline logic on any provider —
+and confirmed GitHub Actions' primitives (arbitrary script execution, full
+git/diff access, structured test-result ingestion, required status checks,
+native squash-merge, admin override) are sufficient to build it. See ADR-021
+for the full breakdown against each requirement.
+
+**What ADR-021 does not resolve:** the actual gate-enforcement scripts
+(commit-diff inspection, the fail-then-pass test-ordering assertion,
+diff-scoped coverage checks, the unicorn linter) are still unbuilt —
+confirmed feasible, not yet implemented. Tracked as its own follow-up task.
 
 **Still TODO beyond the CI provider question:**
 - Mobile app store distribution/review process (§5.3).
 - Cloud/infra deployment pipeline specifics for the MVP EC2 auto-shutdown +
   Lambda-triggered-restart model (discussed, not yet formalized as an ADR).
 
-### 11.11 Compliance & Data Privacy (structured-PII lint resolved; broader items flagged)
+### 11.11 Compliance & Data Privacy (structured-PII lint resolved; account-PII store noted; broader items flagged)
 
 **Structured-field PII lint (resolved):** email addresses, phone numbers,
 dates of birth, and URLs are **hard-blocked** by default from prose and
@@ -620,6 +654,50 @@ generation pipeline) and at Data Entry save/publish time. Explicitly a first
 line of defense, not a complete solution — it cannot detect descriptive
 identification of a real person that doesn't use these four patterns.
 
+**Account PII (distinct from the structured-field lint above — added per
+tech-stack.md §4.1/§6):** the structured-field lint and ADR-022 govern
+**narrative-content** PII — a character's email address appearing in prose.
+Separately, Magpie Weaver stores a small amount of **real, authenticated
+account-holder PII**, in a different location and for a different reason:
+
+- On first login without an existing workspace, the user is walked through
+  a self-service onboarding flow — Terms & Conditions acceptance, workspace
+  creation, and a `user.json` file written into that workspace containing
+  `firstName`, `lastName`, and `emailAddress`, each **encrypted at rest**.
+  The encryption key is a static value sourced from AWS SSM Parameter Store
+  (`SecureString`) at instance boot, never held in plaintext outside the
+  running process's memory.
+- **Bounding unrestricted self-service creation:** since onboarding has no
+  identity allowlist, any authenticated Google account holder who reaches
+  the running instance directly can create a workspace. Two separate
+  controls bound the two different risks this creates: a **per-user EFS
+  storage quota** (flat for MVP, tiered later) bounds storage cost, and a
+  manual `llmEnabled: true` boolean in `user.json` (defaulted to
+  `false`/absent on creation) gates the genuinely expensive risk — LLM
+  spend — behind an explicit, operator-set flag per user rather than
+  granting it automatically on signup.
+- Consent is recorded explicitly: `termsAndConditions: { accepted: true,
+  auth: "<the OAuth token active in the accepting session>", acceptedAt:
+  "<ISO-8601 timestamp>", version: "<major.minor.point>" }`. The timestamp is
+  stored alongside the raw token specifically because a JWT's *signature*
+  verifiability degrades over time (short-lived tokens, rotating JWKS)
+  even though the string persists — the timestamp is the durable,
+  format-independent record of when consent was actually given.
+- **This is the only place Magpie Weaver stores PII.** It is out of scope
+  for the ADR-022 lint (which governs narrative prose/metadata, not account
+  records) and needs its own handling going forward — see the open items
+  below, one of which is new as a direct consequence of this store existing.
+
+**Resolved:** `user.json` is **not** Git-tracked — it's held outside the Git
+working tree on EFS, alongside but separate from the user's Git-backed
+narrative workspace. This means the right-to-erasure gap flagged below for
+narrative content (Git history persisting even after squashing) does **not**
+apply to this account PII: deleting/overwriting the file is a real, complete
+erasure, with no historical copy retained anywhere. This was a deliberate
+choice, not a default — worth keeping explicit for anyone touching this area
+later, since it would be easy to assume "everything in the workspace
+directory is Git-tracked" otherwise.
+
 **Third-party LLM data use (accepted for MVP, revisit after):** MVP accepts
 free/low-cost tier LLM providers training on submitted content, in exchange
 for lower cost. Guarding author content against this (provider selection
@@ -630,6 +708,9 @@ payloads in traces are an accepted MVP tradeoff, to be revisited alongside
 the LLM data-use protection.
 
 **Still genuinely open (not solved by the lint):**
+- Whether the account-PII store (encrypted `user.json`) warrants its own ADR
+  rather than living only in `docs/specs/tech-stack.md` and this footnote —
+  flagged, not decided.
 - Descriptive/contextual identification of real third parties (a character
   clearly modeled on a real, non-platform-user individual via biographical
   detail rather than structured fields) — not solvable by pattern-matching;

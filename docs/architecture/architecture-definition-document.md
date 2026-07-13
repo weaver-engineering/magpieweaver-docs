@@ -1,4 +1,3 @@
-
 ## 1. Context
 
 - [Glossary](../glossary.md) - Glossary of terms.
@@ -86,7 +85,9 @@ The architecture of the system at enterprise scale, not part of MVP, and the arc
 > **Note — scope of MVP devices:** MVP targets Android only (no iOS, no Desktop). This is a deliberate choice, not an
 > oversight: Magpie Weaver is currently developed by a single person, the initial user base is expected to be around
 > 2-3 users, and keeping the footprint small minimizes development effort. iOS and Desktop support are deferred to
-> the enterprise-scale architecture (see ADR-013 and ADR-019).
+> the enterprise-scale architecture — **confirmed by ADR-019 (now Approved)**, which also resolves that this
+> exclusion covers Local Desktop Mode as a *shipped surface* specifically; the separate Development Architecture
+> (below) is unaffected, since it doesn't use the Local Desktop launcher at all.
 
 ```
 ---------------- Local Device ----------------+----------------- Cloud (e.g. AWS) ---------------- 
@@ -314,8 +315,9 @@ Open the UI at the URL printed by step 7, then run the first-run smoke test in t
 **ToDo** — see task `TBD-03`.
 
 This section will cover how credentials and sensitive data are protected across environments: Bedrock API
-credentials, Git credentials for per-user workspaces, session data held in cache, and how ADR-022's structural PII
-linter fits into the wider security posture.
+credentials, Git credentials for per-user workspaces, session data held in cache, how ADR-022's structural PII
+linter fits into the wider security posture, and how ADR-023's account-PII encryption key (SSM Parameter Store
+`SecureString`) is managed and rotated — key rotation specifically is flagged in ADR-023 as not yet defined.
 
 ### Build Process
 **TBC** — see task `TBD-04`.
@@ -323,9 +325,11 @@ linter fits into the wider security posture.
 ### Deployment / CI/CD Pipeline
 **TBC** — see task `TBD-05`.
 
-> **Note — dependency on ADR-021:** ADR-021 (GitHub Actions as CI/CD Provider) is currently open, pending
-> investigation. This section cannot be finalized until that ADR is resolved, since the pipeline stages, gates, and
-> infrastructure described here depend on which CI/CD provider is adopted.
+> **Note — ADR-021 resolved:** GitHub Actions is confirmed as the CI/CD provider (ADR-021, now Approved). This
+> section's remaining TBC status is about the specific pipeline stages/gates/infrastructure implementation, not
+> provider choice — the gate-enforcement scripts themselves (commit-diff inspection, fail-then-pass test ordering,
+> diff-scoped coverage, the unicorn linter) are still unbuilt and tracked as their own follow-up task, per ADR-021's
+> Consequences.
 
 ### Rollback / Incident Response
 **ToDo** — see task `TBD-06`.
@@ -385,12 +389,6 @@ Tasks, their status and lifecycle are mastered in `Linear` at https://linear.app
 
 ## Architectural Decision Records
 
-> **Note — open ADRs and their impact on this document:**
-> - **ADR-019 (MVP Scope Boundary)** is open, not yet finalized. The "MVP Production Architecture - Limited Users"
->   section above depends on this ADR's outcome; treat that section as provisional until ADR-019 is closed.
-> - **ADR-021 (GitHub Actions as CI/CD Provider)** is open, pending investigation. The "Deployment / CI/CD Pipeline"
->   section above depends on this ADR's outcome and cannot be completed until it is closed.
-
 | Reference      | Title                                                                         | State                        |
 |----------------|-------------------------------------------------------------------------------|------------------------------|
 | [ADR-001](ADRs/ADR-001-tech-stack-solution.md) | Tech Stack Solution                                                           | Approved                     |
@@ -411,7 +409,8 @@ Tasks, their status and lifecycle are mastered in `Linear` at https://linear.app
 | [ADR-016](ADRs/ADR-016-scale-to-zero-cache-model-with-branch-scoped-transactional-index.md) | Scale-to-Zero Cache Model with Branch-Scoped, Transactional Index Consistency | Approved                     |
 | [ADR-017](ADRs/ADR-017-three-schema-model-for-narrative-state.md) | Three-Schema Model for Narrative State                                        | Approved                     |
 | [ADR-018](ADRs/ADR-018-prose-as-flat-files-outside-git-data-store.md) | Prose as Write-Once Flat Files Outside GitDataStore                           | Approved                     |
-| [ADR-019](ADRs/ADR-019-mvp-scope-boundary.md) | MVP Scope Boundary                                                            | Open — not yet finalized     |
+| [ADR-019](ADRs/ADR-019-mvp-scope-boundary.md) | MVP Scope Boundary                                                            | Approved                     |
 | [ADR-020](ADRs/ADR-020-openobserve-for-local-observability.md) | OpenObserve for Local Observability, Lifecycle Owned by MagpieWeaverApp       | Approved                     |
-| [ADR-021](ADRs/ADR-021-github-actions-as-cicd-provider.md) | GitHub Actions as CI/CD Provider                                              | Open — pending investigation |
+| [ADR-021](ADRs/ADR-021-github-actions-as-cicd-provider.md) | GitHub Actions as CI/CD Provider                                              | Approved                     |
 | [ADR-022](ADRs/ADR-022-structural-pii-linter.md) | Structured PII Linter: Hard Block with Audited Override                       | Approved                     |
+| [ADR-023](ADRs/ADR-023-account-pii-storage.md) | Account PII Storage: Self-Service Onboarding with Static-Key Encryption       | Approved                     |

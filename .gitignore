@@ -1,3 +1,5 @@
 .idea/
 .claude/
-.obsidian/**/*
+.obsidian/
+.trash/
+/copilot/
