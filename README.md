@@ -1,5 +1,7 @@
 # Magpie Weaver
 
+HMMM
+
 **Magpie Weaver is an AI agent that helps authors write and develop intricate, engaging stories and narratives.**
 
 This package holds the documentation for the Magpie Weaver project — the place we capture what we're building and why, so we don't lose sight of the goal as the work evolves.
