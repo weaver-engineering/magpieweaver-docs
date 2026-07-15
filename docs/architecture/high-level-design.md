@@ -3,14 +3,17 @@
 - [Glossary](../glossary.md) - Glossary of terms.
 - [About Magpie Weaver](../magpie-weaver.md) - Background reading about Magpie Weaver.
 - [Architecture Definition](architecture-definition-document.md) - Magpie Weaver Architecture.
+- [Workflow Design Summary](workflow-design-summary.md) - An overview of the 
+Magpie Weaver author workflow
 
-- Magpie Weaver is architected as a single TypeScript pnpm monorepo powering
-  three client surfaces — **Enterprise Cloud** (primary, mobile-first),
-  **Local Desktop** (convenience), and a **Mobile app** (thin client of the
-  cloud workspace) — sharing core data models, validation schemas, and UI
-  components through a decoupled storage abstraction (`GitDataStore`).
-  The target audience is primarily mobile; desktop and local
-  operation exist for convenience and are held to a lower reliability bar.
+
+Magpie Weaver is architected as a single TypeScript pnpm monorepo powering
+three client surfaces — **Enterprise Cloud** (primary, mobile-first),
+**Local Desktop** (convenience), and a **Mobile app** (thin client of the
+cloud workspace) — sharing core data models, validation schemas, and UI
+components through a decoupled storage abstraction (`GitDataStore`).
+The target audience is primarily mobile; desktop and local
+operation exist for convenience and are held to a lower reliability bar.
 
 ## 1a. MVP Scope Boundary
 

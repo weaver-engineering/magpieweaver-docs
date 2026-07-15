@@ -563,7 +563,7 @@ The repositories maintained by the Magpie Weaver project are:
 > ==================                                     |                                                              |
 > ( Start ) -> pull (main) <------------------------------------------ main [HEAD]                                      |
 >                 |                                      |                                                              |
->              checkout - (feature/{ref})                |                                                              |
+>              checkout - (spec/{ref})                   |                                                              |
 >                 |                                      |                                                              |
 >              write /docs/tasks/task-<ref>.md           |                                                              |
 >              write /docs/tasks/task-<ref>-spec.md      |                                                              |
@@ -584,18 +584,33 @@ The repositories maintained by the Magpie Weaver project are:
                                                          |           |   merge   |                                      |
 > Build Phase                                            |           +-----------+                                      |
 > ===========                                            |                 |                                            |
->              pull (build/{ref}) <---------------------------------- build/{ref} - main[HEAD] & specification-commit   |
+> ( Start ) -> pull (build/{ref}) <---------------------------------- build/{ref} - main[HEAD] & specification-commit   |
 >                  |                                     |                           & test-commit                      |
 >              code solution to failing tests            |                                                              |
 >                  |                                     |                                                              |
->              commit (build-commit)                     |                                                              |    Development Environment
->                  |                                     |                                                              |    =======================
->             [ Deploy {dev} ] --------------------------------------------------------------------------------------------> Deployed task {ref}            
+>              commit (build-commit)                     |                                                              |
 >                  |                                     |                                                              |
->                  |                                     |           +---manual---+                                     |
+>             [ Deploy {dev} ] ----------------------------------------------------------+                              |           
+>                  |                                     |                               |                              |
+>              raise PR (uat/{ref}) ---------------------------------------+             |                              |  
+>                                                        |                 |             |                              |
+                                                         |                 |             |                              |
+> Manual Task                                            |                 |             |                              |
+> ===========                                            |                 |             |                              |
+> ( Start ) -> pull (main) <-------------------------------- main [HEAD]   |             |                              |
+>                 |                                      |                 |             |                              |
+>              checkout - (task/{ref})                   |                 |             |                              |
+>                 |                                      |                 |             |                              |
+>              do task                                   |                 |             |                              |
+>                 |                                      |                 |             |                              |
+>              commit (task-commit)                      |                 |             |                              |   Development Environment
+>                 |                                      |                 |             |                              |   =======================
+>            [ Deploy {dev} ] -----------------------------------------------------------+--------------------------------> Deployed task {ref}
+>                 |                                      |                 |                                            |
+>                 |                                      |           +---manual---+                                     |
 >              raise PR (uat/{ref}) -------------------------------> | Build Gate |                                     |  
 >                                                        |           |   merge    |                                     |
-                                                         |           +------------+                                     |
+                                                         |           +------------+                                     |                                                         
 > User Acceptance Test Phase                             |                 |                                            |
 > ==========================                             |                 |        main[HEAD} & specification-commit   |
 >                                                        |              uat/{ref} - & test-commit                       |    
@@ -603,14 +618,14 @@ The repositories maintained by the Magpie Weaver project are:
 >                                                        |                 |                                            |    Test Environment
 >                                                        |            +------automatic--------+                         |    ================
 >                                                        |            | Deploy {test} ]       | ---------------------------> Deployed task {ref}
->                                                        |            | raise PR (main/{ref}) |                         |
+>                                                        |            | raise PR (task/{ref}) |                         |
 >                                                        |            +-----------------------+                         |
 >                                                        |                 |                                            |
 >                                                        |            +----------------manual-----------------+         |
 >                                                        |            | UAT Gate                              |         |
 >                                                        |            | squash commits                        |         |
 >                                                        |            | merge                                 |         |
->                                                        |            | main/{ref} - main[HEAD] & task-commit |         |
+>                                                        |            | task/{ref} - main[HEAD] & task-commit |         |
 >                                                        |            | raise PR (main)                       |         |
 >                                                        |            +---------------------------------------+         |
                                                          |                 |                                            |
