@@ -549,12 +549,104 @@ while without risking the architect losing their place/context on the Magpie Wea
 
 The repositories maintained by the Magpie Weaver project are:
 * The Documentation Repository
-  - https://github.com/simonemmott/magpieweaver-docs
+  - https://github.com/weaver-engineering/magpieweaver-docs
 * The Code Repository
-  - https://github.com/simonemmott/magpieweaver
+  - https://github.com/weaver-engineering/magpie-weaver
 
 #### Branching Strategies
-**ToDo** — see task `TBD-11`.
+
+**The Code Repository**
+
+```
+----------- local repository ----------------------------+---------------------------- Github --------------------------+------ Environments -------
+> Specfication Phase                                     |                                                              |
+> ==================                                     |                                                              |
+> ( Start ) -> pull (main) <------------------------------------------ main [HEAD]                                      |
+>                 |                                      |                                                              |
+>              checkout - (feature/{ref})                |                                                              |
+>                 |                                      |                                                              |
+>              write /docs/tasks/task-<ref>.md           |                                                              |
+>              write /docs/tasks/task-<ref>-spec.md      |                                                              |
+>                 |                                      |                                                              |
+>              commit (specification-commit)             |                                                              |
+>                 |                                      |           +---manual--+                                      |
+>              raise PR -> (test/{ref}) ---------------------------> | Spec Gate |                                      |
+                                                         |           |   merge   |                                      |
+> Test Phase                                             |           +-----------+                                      |
+> ==========                                             |                 |                                            |
+>              pull (test/{ref}) <----------------------------------- test/{ref} - main[HEAD] & specification-commit    |
+>                  |                                     |                                                              |
+>              code failing tests                        |                                                              |
+>                  |                                     |                                                              |
+>              commit (test-commit)                      |                                                              |
+>                  |                                     |           +---manual--+                                      |
+>              raise PR (build/{ref}) -----------------------------> | Test Gate |                                      |
+                                                         |           |   merge   |                                      |
+> Build Phase                                            |           +-----------+                                      |
+> ===========                                            |                 |                                            |
+>              pull (build/{ref}) <---------------------------------- build/{ref} - main[HEAD] & specification-commit   |
+>                  |                                     |                           & test-commit                      |
+>              code solution to failing tests            |                                                              |
+>                  |                                     |                                                              |
+>              commit (build-commit)                     |                                                              |    Development Environment
+>                  |                                     |                                                              |    =======================
+>             [ Deploy {dev} ] --------------------------------------------------------------------------------------------> Deployed task {ref}            
+>                  |                                     |                                                              |
+>                  |                                     |           +---manual---+                                     |
+>              raise PR (uat/{ref}) -------------------------------> | Build Gate |                                     |  
+>                                                        |           |   merge    |                                     |
+                                                         |           +------------+                                     |
+> User Acceptance Test Phase                             |                 |                                            |
+> ==========================                             |                 |        main[HEAD} & specification-commit   |
+>                                                        |              uat/{ref} - & test-commit                       |    
+>                                                        |                 |        & build-commit                      |
+>                                                        |                 |                                            |    Test Environment
+>                                                        |            +------automatic--------+                         |    ================
+>                                                        |            | Deploy {test} ]       | ---------------------------> Deployed task {ref}
+>                                                        |            | raise PR (main/{ref}) |                         |
+>                                                        |            +-----------------------+                         |
+>                                                        |                 |                                            |
+>                                                        |            +----------------manual-----------------+         |
+>                                                        |            | UAT Gate                              |         |
+>                                                        |            | squash commits                        |         |
+>                                                        |            | merge                                 |         |
+>                                                        |            | main/{ref} - main[HEAD] & task-commit |         |
+>                                                        |            | raise PR (main)                       |         |
+>                                                        |            +---------------------------------------+         |
+                                                         |                 |                                            |
+                                                         |            +------automatic------+                           |    
+> Deployment Phase                                       |            | Deployemnt Gate     |                           |    Production Environment
+> ================                                       |            | merge               |                           |    ======================
+>                                                        |            | Deploy {production} |------------------------------> Deployed task {ref}
+>                                                        |            +---------------------+                           |
+                                                         |                 |                                            |
+(Done) <------------------------------------------------------------- main [task-commit -> HEAD]                        |                                                                                           
+                                                         |                                                              |
+```
+
+**The Document Repository**
+
+```
+----------- local repository ----------------------------+---------------------------- Github --------------------------+
+                                                         |
+(Start) -> pull (main) <---------------------------------------------main [HEAD]
+              |                                          |
+           checkout task/{ref}                           |
+              |                                          |
+           write up documentation                        |
+              |                                          |
+           commit documentation-commit                   |
+              |                                          |          +---------------+
+           raise PR (main) ---------------------------------------> | Approval Gate |
+                                                         |          | merge         |
+                                                         |          +---------------+
+                                                         |                 |
+(Done) <----------------------------------------------------------- main [documentation-commit -> HEAD]
+                                                         |
+```
+
+Every commit in either repository **MUST** be stamped with the task {ref} in the commit message.
+
 
 ### Task Tracking
 Tasks, their status and lifecycle are mastered in `Linear` at https://linear.app/simonemmott/project/magpie-weaver-a6314c2e525d
