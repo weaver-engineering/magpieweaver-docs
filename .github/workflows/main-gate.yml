@@ -19,12 +19,22 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
-
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: Validate latest commit message
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          set -euo pipefail
+          echo "Checking latest commit message starts with [REF] and includes a description..."
+          commit_message="$(git log -1 --pretty=%B)"
+          first_line="$(printf '%s' "$commit_message" | head -n1)"
+          commit_body="$(printf '%s' "$commit_message" | tail -n +2 | sed '/^[[:space:]]*$/d')"
+          echo "Latest commit title: $first_line"
+          if [[ ! "$first_line" =~ ^\[[A-Z0-9]+-[0-9]+\] ]]; then
+            echo "Error: commit title must start with [REF] where REF is like MAG-123 or DDD-234."
+            echo "Received: $first_line"
+            exit 1
+          fi
+          if [[ -z "$commit_body" ]]; then
+            echo "Error: commit message must include a description after the title."
+            echo "Commit body was empty."
+            exit 1
+          fi
+          echo "Commit title and description are valid."
