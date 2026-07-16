@@ -570,7 +570,7 @@ The repositories maintained by the Magpie Weaver project are:
 >                 |                                      |                                                              |
 >              commit (specification-commit)             |                                                              |
 >                 |                                      |           +---manual--+                                      |
->              raise PR -> (test/{ref}) ---------------------------> | Spec Gate |                                      |
+>              raise PR -> (test/{ref}) ---------------------------> | Test Gate |                                      |
                                                          |           |   merge   |                                      |
 > Test Phase                                             |           +-----------+                                      |
 > ==========                                             |                 |                                            |
@@ -579,10 +579,10 @@ The repositories maintained by the Magpie Weaver project are:
 >              code failing tests                        |                                                              |
 >                  |                                     |                                                              |
 >              commit (test-commit)                      |                                                              |
->                  |                                     |           +---manual--+                                      |
->              raise PR (build/{ref}) -----------------------------> | Test Gate |                                      |
-                                                         |           |   merge   |                                      |
-> Build Phase                                            |           +-----------+                                      |
+>                  |                                     |           +---manual---+                                     |
+>              raise PR (build/{ref}) -----------------------------> | Build Gate |                                     |
+                                                         |           |   merge    |                                     |
+> Build Phase                                            |           +----------_-+                                     |
 > ===========                                            |                 |                                            |
 > ( Start ) -> pull (build/{ref}) <---------------------------------- build/{ref} - main[HEAD] & specification-commit   |
 >                  |                                     |                           & test-commit                      |
@@ -608,59 +608,222 @@ The repositories maintained by the Magpie Weaver project are:
 >            [ Deploy {dev} ] -----------------------------------------------------------+--------------------------------> Deployed task {ref}
 >                 |                                      |                 |                                            |
 >                 |                                      |           +---manual---+                                     |
->              raise PR (uat/{ref}) -------------------------------> | Build Gate |                                     |  
+>              raise PR (uat/{ref}) -------------------------------> | UAT Gate   |                                     |  
 >                                                        |           |   merge    |                                     |
                                                          |           +------------+                                     |                                                         
 > User Acceptance Test Phase                             |                 |                                            |
-> ==========================                             |                 |        main[HEAD} & specification-commit   |
->                                                        |              uat/{ref} - & test-commit                       |    
->                                                        |                 |        & build-commit                      |
->                                                        |                 |                                            |    Test Environment
->                                                        |            +------automatic--------+                         |    ================
->                                                        |            | Deploy {test} ]       | ---------------------------> Deployed task {ref}
->                                                        |            | raise PR (task/{ref}) |                         |
->                                                        |            +-----------------------+                         |
+> ==========================                             |                 |    main[HEAD} & (specification-commit      |
+>                                                        |                uat - & test-commit                           |    
+>                                                        |                 |    & build-commit) OR task-commit          |
 >                                                        |                 |                                            |
->                                                        |            +----------------manual-----------------+         |
->                                                        |            | UAT Gate                              |         |
->                                                        |            | squash commits                        |         |
->                                                        |            | merge                                 |         |
->                                                        |            | task/{ref} - main[HEAD] & task-commit |         |
->                                                        |            | raise PR (main)                       |         |
->                                                        |            +---------------------------------------+         |
+>                                                        |            +------automatic--------+                         |
+>                                                        |            | Deploy Test Action    |                         |    Test Environment
+>                                                        |            | squash commits        |                         |    ================
+>                                                        |            | Deploy {test}         | ---------------------------> Deployed task {ref}
+>                                                        |            | raise PR (main)       |                         |
+>                                                        |            +-----------------------+                         |
                                                          |                 |                                            |
-                                                         |            +------automatic------+                           |    
-> Deployment Phase                                       |            | Deployemnt Gate     |                           |    Production Environment
-> ================                                       |            | merge               |                           |    ======================
+                                                         |            +------manual---------+                           |    
+> Deployment Phase                                       |            | Main Gate           |                           |
+> ================                                       |            | merge               |                           |
+>                                                        |            +---------------------+                           |
+>                                                        |                 |                                            |
+>                                                        |            +-----automatic-------+                           |    Production Environment
+>                                                        |            | Deploy Prod Action  |                           |    ======================
 >                                                        |            | Deploy {production} |------------------------------> Deployed task {ref}
 >                                                        |            +---------------------+                           |
                                                          |                 |                                            |
 (Done) <------------------------------------------------------------- main [task-commit -> HEAD]                        |                                                                                           
                                                          |                                                              |
 ```
+**Branches**
+- ***spec/{ref}***
+  - New `spec/{ref}` branches from `main[HEAD]`.
+  - The architect commits task specifications to this branch for the given `task-{ref}`, referencing design documentation in `magpieweaver-docs`repository.
+  - Changes are **ONLY PERMITTED** in `/docs/tasks/task-{ref}` and **MUST** contain at least `/docs/tasks/task-{ref}/task-{ref}.md`and `/docs/tasks/task-{ref}-spec.md`
+  - `origin/spec/*` accepts pushes from remotes.
+
+- ***test/{ref}***
+  - New `test/{ref}` branches from `spec/{ref}[HEAD]`.
+  - The agent commits failing tests to this branch for the given `task-{ref}` which exercise the designed behaviors of the system.
+  - Changes are **ONLY PERMITTED** in `/test`.
+  - Existing tests **MAY NOT** be edited and **MUST** pass.
+  - At least 1 new failing test **MUST** exist.
+  - `origin/test/{ref}` rejects pushes from remotes and requires a PR from `spec/{ref}`.
+
+- ***build/{ref}***
+  - New `build/{ref}` branches from `spec/{ref}[HEAD]`.
+  - The agent commits solutions to the failing tests
+  - Changes are **ONLY PERMITTED** in `/src`
+  - All tests **MUST** pass.
+  - `origin/build/{ref}` rejects pushes from remotes and requires a PR from `test/{ref}`.
+  
+- ***task/{ref}***
+  - New `task/{ref}` branches from `main[HEAD]`.
+  - The architect commits changes
+  - The change **MUST** be documented in `/docs/tasks/task_{ref}` and contain at least `/docs/tasks/task-{ref}/task-{ref}.md`
+  - All tests **MUST** pass.
+  - `origin/task/*` accepts pushes from remotes.
+
+- ***uat***
+  - `origin/uat` rejects pushes from remotes and requires a pull request from `build/{ref}` OR `task/{ref}`.
+  - Merging changes into `origin/uat` 
+    - Squashes to a single commit. 
+    - Deploys to the test environment.
+    - Raises a PR to `main`.
+
+- ***main***
+  - `origin/main` rejects pushes from remotes and requires a PR from `uat/{ref}`.
+  - Merging changes into `main`
+    - Deploys the production environment.
+
+**Gates And Actions**
+- ***Test Gate***
+  - Is a PR from `spec/{ref}` to `origin/test/{ref}`
+  - Requires human approval to proceed
+  - Validates
+    - Single inbound commit.
+    - Commit messages starts with `[{ref}]`
+    - Commit message includes a description.
+    - Changes are **ONLY** in `/docs/tasks/task-{ref}`
+    - `/docs/tasks/task-{ref}/task-{ref}.md` exists.
+    - `/docs/tasks/task-{ref}/task-{ref}-spec.md` exists.
+  - Requires human override of failing validation.
+
+- ***Build Gate***
+  - Is a PR from `test/{ref}` to `origin/build/{ref}`.
+  - Requires human approval to proceed.
+  - Validates
+    - 2 inbound commits
+    - 1st commit
+      - Passes test gate validation.
+    - 2nd commit
+      - Commit message starts with `[{ref}]`
+      - Commit message includes a description.
+      - Changes are **ONLY** in `/test`
+      - Existing tests not changed.
+      - Existing tests pass.
+      - At least 1 new test fails.
+  - Requires human override of failing validation.
+
+- ***UAT Gate***
+  - Is a PR from `build/{ref}` or `task/{ref}` to `origin/uat`
+  - Requires human approval to proceed
+  - Validates
+    - Changes from `build/{ref}`
+      - 3 inbound commits
+      - 1st commit
+        - Passes test gate validation
+      - 2nd commit
+        - Commit message starts with `[{ref}]`
+        - Commit message includes a description.
+        - Changes are **ONLY** in `/test`
+        - At least 1 new test
+      - 3rd commit
+        - Commit message starts with `[{ref}]`
+        - Commit message includes a description.
+        - Changes are **ONLY** in `/src`
+        - All tests pass
+    - Changes from `task/{ref}`
+      - 1 inbound commit
+      - Commit message starts with `[{ref}]`
+      - Commit message includes a description.
+      - All tests pass
+  - Requires human override of failing validation
+
+- ***Deploy Test Action***
+  - Triggered on merge to `uat`
+  - Squashes to 1 commit, concatenating the commit messages (spec + test + build)
+  - Deploys the test environment
+  - Raises a PR to `main`
+
+- ***Main Gate***
+  - Is a PR from `uat` to `origin/main`
+  - Requires human approval to proceed.
+  - Validates
+    - 1 inbound commit
+    - Commit title starts with `[{ref}]`
+    - Commit message includes a description.
+    - `/docs/tasks/task-{ref}/task-{ref}.md` exists.
+    - All tests pass
+
+- ***Deploy Prod Action***
+  - Triggered on merge to `main`
+  - Deploys the production environment
 
 **The Document Repository**
 
 ```
------------ local repository ----------------------------+---------------------------- Github --------------------------+
-                                                         |
-(Start) -> pull (main) <---------------------------------------------main [HEAD]
-              |                                          |
-           checkout task/{ref}                           |
-              |                                          |
-           write up documentation                        |
-              |                                          |
-           commit documentation-commit                   |
-              |                                          |          +---------------+
-           raise PR (main) ---------------------------------------> | Approval Gate |
-                                                         |          | merge         |
-                                                         |          +---------------+
-                                                         |                 |
-(Done) <----------------------------------------------------------- main [documentation-commit -> HEAD]
-                                                         |
+----------- local repository ----------------+---------------------------- Github ---------------------------------+
+                                             |
+> Research Phase                             |
+> ==============                             |
+> ( Start ) pull (obsidian) <--------------------- obsidian[HEAD]
+>              |                             |
+>          write up notes                    |
+>              |                             |
+>          commit notes-commit               |
+>              |                             |                     
+>          push (obsidian) --------------------------------+
+                                             |             |
+( Done ) <---------------------------------------- obsidian[notes-commit -> HEAD]
+                                             | 
+> Documentation Phase                        |
+> ===================                        |                                                                      
+> ( Start ) -> pull (main) <---------------------- main [HEAD]
+>               |                            |
+>            checkout task/{ref}             |
+>               |                            |
+>            squash merge (origin/obsidian) <----- obsidian[HEAD]
+>               |                            |
+>            write up documentation          |
+>               |                            |
+>            commit documentation-commit     |
+>               |                            |     +------manual-----+
+>            raise PR (main) --------------------> | Main Gate       |
+                                             |     | merge           |
+                                             |     +-----------------+
+                                             |             |
+( Done ) <--------------------------------------------------------- main [documentation-commit -> HEAD]
+                                             |             |
+                                             |     +---automatic-----+
+                                             |     | Main Action     |
+                                             |     | push (obsidian) | ---> obsidian [documentation-commit -> HEAD]
+                                             |     +-----------------+
+                                             | 
 ```
 
-Every commit in either repository **MUST** be stamped with the task {ref} in the commit message.
+***Branches***
+
+- ***obsidian***
+  - Kept up to date with `main[HEAD]`
+  - Used for injecting research notes into the repository via obsidian (tablet app) allowing early integration of docs and AI agents.
+  - No branch protection
+  - Obsidian app configured to auto pull/push on commit;
+  - Supports fast research and injection into documentation
+
+- ***main***
+  - Protected branch. No pushes to `main`
+  - Single branch for documentation changes
+  - Pull from `obsidian` before making edits
+  - Squashed commits when pulling from `obsidian` (Obsidian creates lots of poorly named/described commits)
+  - commits require `[{ref]}` at start of the title
+  - commit require a description of the change
+
+
+***Gates And Actions***
+
+- ***Main Gate***
+  - Is a PR to `main`
+  - Requires manual approval
+  - Requires title of latest commit to start with `[{ref}]`
+  - Requires description of commit to be present
+  - Requires *at most* 2 commits (1 squashed from `obsidian` and a single commit from `main`)
+  - Requires human override of failing validation
+
+- ***Main Action***
+  - Triggered by merge into `main`
+  - push to `obsidian`
 
 
 ### Task Tracking
