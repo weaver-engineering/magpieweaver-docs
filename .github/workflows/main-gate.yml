@@ -24,7 +24,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate latest commit message
+      - name: validate
         run: |
           set -euo pipefail
           echo "Checking latest commit message starts with task reference and includes a description..."
@@ -50,7 +50,7 @@ jobs:
           fi
           echo "Commit title and description are valid."
 
-      - name: Report status to commit
+      - name: report
         if: always()
         uses: actions/github-script@v7
         with:
