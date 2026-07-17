@@ -1,0 +1,66 @@
+name: MainGate
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  validate-commit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: validate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Determine commit SHA
+            const commit_sha = context.payload.pull_request.head.sha;
+            
+            // Get commit message
+            const { execSync } = require('child_process');
+            const commit_message = execSync(`git log -1 --pretty=%B ${commit_sha}`, { encoding: 'utf8' });
+            const first_line = commit_message.split('\n')[0];
+            const commit_body = commit_message.split('\n').slice(1).filter(line => line.trim()).join('\n');
+            
+            console.log(`Latest commit title: ${first_line}`);
+            
+            let validation_passed = true;
+            let error_message = '';
+            
+            if (!/^[A-Z]+-[0-9]+/.test(first_line)) {
+              validation_passed = false;
+              error_message = `Commit title must start with task reference e.g. MAG-30. Received: ${first_line}`;
+            } else if (!commit_body) {
+              validation_passed = false;
+              error_message = 'Commit message must include a description after the title.';
+            }
+            
+            // Report status
+            const state = validation_passed ? 'success' : 'failure';
+            const description = validation_passed 
+              ? 'Commit message validation passed' 
+              : 'Commit message validation failed';
+            
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: commit_sha,
+              state: state,
+              description: description,
+              context: 'MainGate'
+            });
+            
+            if (!validation_passed) {
+              throw new Error(`Error: ${error_message}`);
+            }
