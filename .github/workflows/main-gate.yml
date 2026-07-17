@@ -1,13 +1,9 @@
-# The Main Gate action validates the contents of the commit history for:
-# - Requires title of latest commit to start with `[{ref}]`
-# - Requires the description of the commit to be present
-
 name: MainGate
 
 on:
   pull_request:
     branches:
-    - main
+      - main
 
 permissions:
   contents: read
@@ -17,59 +13,54 @@ jobs:
   validate-commit:
     runs-on: ubuntu-latest
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: validate
-        run: |
-          set -euo pipefail
-          echo "Checking latest commit message starts with task reference and includes a description..."
-          # For pull requests, get the head commit (your actual commit), not the merge commit
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            commit_sha="${{ github.event.pull_request.head.sha }}"
-          else
-            commit_sha="HEAD"
-          fi
-          commit_message="$(git log -1 --pretty=%B "$commit_sha")"
-          first_line="$(printf '%s' "$commit_message" | head -n1)"
-          commit_body="$(printf '%s' "$commit_message" | tail -n +2 | sed '/^[[:space:]]*$/d')"
-          echo "Latest commit title: $first_line"
-          if [[ ! "$first_line" =~ ^[A-Z]+-[0-9]+ ]]; then
-            echo "Error: commit title must start with task reference e.g. MAG-30"
-            echo "Received: $first_line"
-            exit 1
-          fi
-          if [[ -z "$commit_body" ]]; then
-            echo "Error: commit message must include a description after the title."
-            echo "Commit body was empty."
-            exit 1
-          fi
-          echo "Commit title and description are valid."
-          exit 0
-
-      - name: report
-        if: always()
         uses: actions/github-script@v7
-        env:
-          VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
         with:
           script: |
-            const state = process.env.VALIDATION_OUTCOME === 'success' ? 'success' : 'failure';
-            const description = state === 'success' 
+            const fs = require('fs');
+            
+            // Determine commit SHA
+            const commit_sha = context.payload.pull_request.head.sha;
+            
+            // Get commit message
+            const { execSync } = require('child_process');
+            const commit_message = execSync(`git log -1 --pretty=%B ${commit_sha}`, { encoding: 'utf8' });
+            const first_line = commit_message.split('\n')[0];
+            const commit_body = commit_message.split('\n').slice(1).filter(line => line.trim()).join('\n');
+            
+            console.log(`Latest commit title: ${first_line}`);
+            
+            let validation_passed = true;
+            let error_message = '';
+            
+            if (!/^[A-Z]+-[0-9]+/.test(first_line)) {
+              validation_passed = false;
+              error_message = `Commit title must start with task reference e.g. MAG-30. Received: ${first_line}`;
+            } else if (!commit_body) {
+              validation_passed = false;
+              error_message = 'Commit message must include a description after the title.';
+            }
+            
+            // Report status
+            const state = validation_passed ? 'success' : 'failure';
+            const description = validation_passed 
               ? 'Commit message validation passed' 
               : 'Commit message validation failed';
-
-            github.rest.repos.createCommitStatus({
+            
+            await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              sha: context.payload.pull_request.head.sha,
+              sha: commit_sha,
               state: state,
               description: description,
               context: 'MainGate'
             });
-
-
+            
+            if (!validation_passed) {
+              throw new Error(`Error: ${error_message}`);
+            }
