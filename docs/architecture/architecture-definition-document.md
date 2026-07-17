@@ -690,7 +690,7 @@ The repositories maintained by the Magpie Weaver project are:
       - `/docs/tasks/task-{ref}/task-{ref}.md` exists.
       - `/docs/tasks/task-{ref}/task-{ref}-spec.md` exists.
     - 2nd commit
-      - Commit message starts with `[{ref}]`
+      - Commit message starts with `{ref}`
       - Commit message includes a description.
       - Changes are **ONLY** in `/test`
       - Existing tests not changed.
@@ -706,24 +706,24 @@ The repositories maintained by the Magpie Weaver project are:
     - Changes from `build/{ref}`
       - 3 inbound commits
       - 1st commit
-        - Commit messages starts with `[{ref}]`
+        - Commit messages starts with `{ref}`
         - Commit message includes a description.
         - Changes are **ONLY** in `/docs/tasks/task-{ref}`
         - `/docs/tasks/task-{ref}/task-{ref}.md` exists.
         - `/docs/tasks/task-{ref}/task-{ref}-spec.md` exists.
       - 2nd commit
-        - Commit message starts with `[{ref}]`
+        - Commit message starts with `{ref}`
         - Commit message includes a description.
         - Changes are **ONLY** in `/test`
         - Existing tests not changed.
         - At least 1 new test
       - 3rd commit
-        - Commit message starts with `[{ref}]`
+        - Commit message starts with `{ref}`
         - Commit message includes a description.
         - Changes are **ONLY** in `/src`
     - Changes from `task/{ref}`
       - 1 inbound commit
-      - Commit message starts with `[{ref}]`
+      - Commit message starts with `{ref}`
       - Commit message includes a description.
     - All tests pass
     - 85% Code coverage
@@ -741,7 +741,7 @@ The repositories maintained by the Magpie Weaver project are:
   - Requires human approval to proceed.
   - Validates
     - 1 inbound commit
-    - Commit title starts with `[{ref}]`
+    - Commit title starts with `{ref}`
     - Commit message includes a description.
     - `/docs/tasks/task-{ref}/task-{ref}.md` exists.
     - All tests pass
@@ -806,7 +806,7 @@ The repositories maintained by the Magpie Weaver project are:
   - Single branch for documentation changes
   - Pull from `obsidian` before making edits
   - Squashed commits when pulling from `obsidian` (Obsidian creates lots of poorly named/described commits)
-  - commits require `[{ref]}` at start of the title
+  - commits require `{ref}` at start of the title
   - commit require a description of the change
 
 
@@ -815,7 +815,7 @@ The repositories maintained by the Magpie Weaver project are:
 - ***Main Gate***
   - Is a PR to `main`
   - Requires manual approval
-  - Requires title of latest commit to start with `[{ref}]`
+  - Requires title of latest commit to start with `{ref}`
   - Requires description of commit to be present
   - Requires *at most* 2 commits (1 squashed from `obsidian` and a single commit from `task/{ref}`)
   - Requires human override of failing validation
