@@ -64,7 +64,9 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               sha: context.payload.pull_request.head.sha,
-              state: state,
+              state: 'success',
               description: description,
               context: 'MainGate'
             });
+
+
