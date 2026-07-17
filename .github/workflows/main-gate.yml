@@ -9,6 +9,10 @@ on:
     branches:
     - main
 
+permissions:
+  contents: read
+  statuses: write
+
 jobs:
   validate-commit:
     runs-on: ubuntu-latest
