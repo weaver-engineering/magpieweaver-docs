@@ -203,7 +203,7 @@ be in a format and location that the agents can read. Documentation of Magpie We
 subsystem designs and component breakdown — is all recorded in *this* repository. The documentation of a task (what
 it is supposed to deliver) is recorded in `task-<REF>.md` with `task-<REF>-spec.md`. These documents live within the
 code base that the task changes. They are recorded in
-```
+``` fold
 docs/
   +-tasks/
       +- <REF-A>/
@@ -236,10 +236,9 @@ designs that the task delivers or relies upon are fully complete (at least with 
 100% complete) before the agent takes over completion of the task. The spec defines the expected system behaviors
 that must be exhibited by the system for the task to be complete. The architect writes the `task-<REF>.md` and the
 `task-<REF>-spec.md` and commits them to the code repository. Once the architect is content that the documentation
-required to complete the task is done and committed to the code repository, the `specification` phase is complete and
-the task transitions to the `test` phase.
+required to complete the task is done and committed to the code repository, the `specification` phase is complete and the task transitions to the `test` phase. Multiple cycles through the `specification` / `test` / `build`  phases may be required to keep the agents context clear enough to complete the task or tasks scope may drift over its lifecycle. The `<NN>` portion of the specification file name is optional. Valid specification file names are, `task-<REF>-spec.md` and `task-<REF>-<NN>-spec.md`
 
-In the `test` phase the agent reads the `task-<REF>.md` and the `task-<REF>-spec.md` files and whatever design
+In the `test` phase the agent reads the `task-<REF>.md` and the `task-<REF>[-NN]-spec.md` files and whatever design
 documentation it deems necessary, and writes the failing tests which must pass before the task can be completed.
 During the `test` phase the agent **may only** change contents in the test packages. The new tests **MUST** fail
 against the existing code base while old tests must still pass against the existing, unchanged code base.
@@ -258,6 +257,8 @@ documentation it deems necessary and, **without changing the test package or the
 changes required to make the failing tests pass. Once the architect is content that the system behaves as required
 by the task and that existing system behaviors are unaffected (existing tests still pass), the code changes are also
 committed to the code repository and the task transitions to the `deployment` phase.
+
+Multiple cycles through the `specification` / `test` / `build`  phases may be required to keep the agents context clear enough to complete the task or the scope may drift over its lifecycle. Valid specification file names are, `task-<REF>-spec.md` and `task-<REF>-<NN>-spec.md
 
 In the `deployment` phase the CI/CD deploys the changes to the test environment and blocks until UAT testing
 (human interactive testing) passes. On UAT *pass*, the `deploy-test` subphase is complete and the change is deployed
@@ -377,15 +378,15 @@ columns currently applies.
 
 #### 2. Mechanical checks enforced automatically
 
-| Check | Runs at | Enforces | Reference |
-|---|---|---|---|
-| **Commit-scope diff inspection** | Test commit, Build commit | The "Agent may / may not change" boundaries in §1 above — a Test commit touching implementation files, or a Build commit touching the test package or spec docs, fails the check | ADR-015; ADR-021 |
+| Check                                                      | Runs at                                                              | Enforces                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Reference                   |
+| ---------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| **Commit-scope diff inspection**                           | Test commit, Build commit                                            | The "Agent may / may not change" boundaries in §1 above — a Test commit touching implementation files, or a Build commit touching the test package or spec docs, fails the check                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | ADR-015; ADR-021            |
 | **Fail-then-pass test ordering, existing tests immutable** | Test commit (pre-implementation), Build commit (post-implementation) | New tests in the Test commit must **fail** against the pre-existing codebase; **any diff touching a pre-existing test file, or anything outside the test package, fails the check outright** — this is a hard invariant with no built-in automated exception. After the Build commit, **all** tests (new and old) must pass, with no further test edits. In-progress drafting/revision of *this task's new tests* is unrestricted before the final commit — intermediate commits are squashed into one before the gate evaluates anything, so the gate only ever diffs the final squashed Test commit against mainline's prior state, never the agent's own iteration history | HLD §11.3; ADR-015; ADR-021 |
-| **Diff-scoped coverage thresholds** | Build commit | ~80–85% overall codebase coverage; **95%+ on new/changed lines specifically** (diff coverage, not whole-file) — avoids penalizing an agent for pre-existing untested code in a touched file | HLD §11.3 |
-| **"Unicorn linter" (weak-but-passing test detection)** | Test commit, Build commit | Flags code/tests built on literal-value checks disconnected from the component's natural behaviour — a test that passes mechanically without actually exercising the requirement it claims to cover | HLD §11.3 |
-| **Small-change fast path** | Task start | Changes that don't require altering existing tests and still pass coverage checks may skip the full three-gate cycle and go straight to implementation | HLD §11.3 |
-| **Branch protection / required status checks** | Every PR/merge attempt | Makes every check above an actual merge precondition, not an advisory one | ADR-021 |
-| **Squash-on-merge** | Merge to mainline | The three phase-scoped commits (Spec/Test/Build) are squashed into one on merge — a deliberate tradeoff of detailed gate-level forensics (which live in the per-task doc files, HLD §11.4) for a clean mainline history | ADR-015; HLD §11.4 |
+| **Diff-scoped coverage thresholds**                        | Build commit                                                         | ~80–85% overall codebase coverage; **95%+ on new/changed lines specifically** (diff coverage, not whole-file) — avoids penalizing an agent for pre-existing untested code in a touched file                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | HLD §11.3                   |
+| **"Unicorn linter" (weak-but-passing test detection)**     | Test commit, Build commit                                            | Flags code/tests built on literal-value checks disconnected from the component's natural behaviour — a test that passes mechanically without actually exercising the requirement it claims to cover                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HLD §11.3                   |
+| **Small-change fast path**                                 | Task start                                                           | Changes that don't require altering existing tests and still pass coverage checks may skip the full three-gate cycle and go straight to implementation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | HLD §11.3                   |
+| **Branch protection / required status checks**             | Every PR/merge attempt                                               | Makes every check above an actual merge precondition, not an advisory one                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | ADR-021                     |
+| **Squash-on-merge**                                        | Merge to mainline                                                    | The three phase-scoped commits (Spec/Test/Build) are squashed into one on merge — a deliberate tradeoff of detailed gate-level forensics (which live in the per-task doc files, HLD §11.4) for a clean mainline history                                                                                                                                                                                                                                                                                                                                                                                                                                                       | ADR-015; HLD §11.4          |
 
 **Status of implementation, not just design:** ADR-021 confirmed GitHub
 Actions is *capable* of enforcing every check above (via required status
@@ -557,7 +558,7 @@ The repositories maintained by the Magpie Weaver project are:
 
 **The Code Repository**
 
-```
+``` fold
 ----------- local repository ----------------------------+---------------------------- Github --------------------------+------ Environments -------
 > Specfication Phase (architect)                         |                                                              |
 > ==============================                         |                                                              |
@@ -680,15 +681,16 @@ The repositories maintained by the Magpie Weaver project are:
 
 - ***Build Gate***
   - Is a PR from `test/{ref}` to `origin/build/{ref}`.
+  - `{ref}` conforms to the regex `[A-Z]+-[0-9]+`
   - Requires human approval to proceed.
   - Validates
     - 2 inbound commits
     - 1st commit
-      - Commit messages starts with `[{ref}]`
+      - Commit messages starts with `{ref}`
       - Commit message includes a description.
       - Changes are **ONLY** in `/docs/tasks/task-{ref}`
       - `/docs/tasks/task-{ref}/task-{ref}.md` exists.
-      - `/docs/tasks/task-{ref}/task-{ref}-spec.md` exists.
+      - `/docs/tasks/task-{ref}/task-{ref}[-NN]-spec.md` exists.
     - 2nd commit
       - Commit message starts with `{ref}`
       - Commit message includes a description.
