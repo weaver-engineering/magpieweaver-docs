@@ -654,7 +654,7 @@ The repositories maintained by the Magpie Weaver project are:
 - ***build/{ref}***
   - New `build/{ref}` branches from `spec/{ref}[HEAD]`.
   - The agent commits solutions to the failing tests
-  - Changes are **ONLY PERMITTED** in `/src`
+  - Changes are **ONLY PERMITTED** in `/apps` or `/packages`
   - All tests **MUST** pass.
   - `origin/build/{ref}` rejects pushes from remotes and requires a PR from `test/{ref}`.
   
@@ -722,7 +722,7 @@ The repositories maintained by the Magpie Weaver project are:
       - 3rd commit
         - Commit message starts with `{ref}`
         - Commit message includes a description.
-        - Changes are **ONLY** in `/src`
+        - Changes are **ONLY** in `/apps` or `/packages`
     - Changes from `task/{ref}`
       - 1 inbound commit
       - Commit message starts with `{ref}`
