@@ -20,13 +20,19 @@ The Development Architecture has four moving parts, all running locally:
 
 Install the following on your machine before cloning anything:
 
-| Tool | Version | Notes |
-|---|---|---|
-| Node.js | `<CONFIRM — e.g. 20.x LTS>` | Use `nvm` to pin the version so it matches the repo's `.nvmrc` once one exists. |
-| Package manager | `pnpm` | Match whatever the code repo's lockfile uses — confirm once the repo exists. |
-| Git | `>= 2.40` | Required both for cloning repos and because the TS Service shells out to a Git binary at runtime. |
-| Git binary (runtime dependency) | `<CONFIRM — same as above, or a specific pinned build?>` | This is the Git binary the TS Service invokes, per the architecture diagram — confirm whether this is just system `git` or a bundled binary. |
-| LM Studio | latest | Local LLM runtime standing in for Bedrock in this environment. |
+| Tool                            | Version   | Notes                                                                                                                                        |
+|---------------------------------|-----------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| Node.js                         | `26.4.0`  | Use `nvm` to pin the version so it matches the repo's `.nvmrc` once one exists.                                                              |
+| pnpm                            | `11.15.1` | Match whatever the code repo's lockfile uses — confirm once the repo exists.                                                                 |
+| Git                             | `2.54.0`  | Required both for cloning repos and because the TS Service shells out to a Git binary at runtime.                                            |
+| Git binary (runtime dependency) | `2.54.0`  | This is the Git binary the TS Service invokes, per the architecture diagram — confirm whether this is just system `git` or a bundled binary. |
+| LM Studio                       | latest    | Local LLM runtime standing in for Bedrock in this environment.                                                                               |
+
+```bash
+npm install -g corepack
+corepack enable
+corepack prepare pnpm@latest --activate
+```
 
 Check versions:
 ```bash
