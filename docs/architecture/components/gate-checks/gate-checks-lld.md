@@ -120,72 +120,80 @@ export type FunctionCatalog = Record<string, GateCheckFn>
  */
 export interface GitInspector {
   /**
+   * Get the reference (Sha) of the commit where the 2 references diverge
+   * @param aRef The reference to a commit
+   * @param bRef The reference to another commit
+   * @returns   The commit reference where the chenges to aRef diverge from the changes to bRef 
+   */
+    mergeBase(aRef: string, bRef: string): Promise<string>;
+  /**
    * List the file changes between baseSha and headSha
    * If headSha is not given then list the file changes in baseSha
    * returns a list of the changed paths in the repository
    * 
-   * @param baseSha The starting Sha
-   * @param headSha The ending Sha
-   * @returns   a list of the changed paths in the repository between baseSha
-   *            and headSha
+   * @param baseRef The starting reference
+   * @param headRef The ending reference
+   * @returns   a list of the changed paths in the repository between baseRef
+   *            and headRef
    */
-    diffTree(baseSha: string, headSha?: string): Promise<string[]>;
+    diffTree(baseRef: string, headRef?: string): Promise<string[]>;
 
   /**
    * List the paths in the repository at the given commit reference
    * If the path is not given list all the paths in the repository
-   * @param commitSha List the paths in the repository upto this Sha
+   * @param commitRef List the paths in the repository upto this reference
    * @param path If given only list the paths with this prefix.
-   * @returns   A list of the paths in the repository to the given Sha
+   * @returns   A list of the paths in the repository to the given reference
    */
-    lsTree(commitSha: string, path?: string): Promise<string[]>;
+    lsTree(commitRef: string, path?: string): Promise<string[]>;
 
   /**
-   * List the commit messages from baseSha to headSha
-   * If headSha is not given then return the commit message for the baseSha
-   * @param baseSha The Sha of the first commit message
-   * @param headSha The Sha of the last commit message
-   * @returns   The commit messages between baseSha and headSha
+   * List the commit messages from baseRef to headRef
+   * If headRef is not given then return the commit message for the baseRef
+   * @param baseRef The reference of the first commit message
+   * @param headRef The reference of the last commit message
+   * @returns   The commit messages between baseRef and headRef
    */
-    commitMessages(baseSha: string, headSha?: string): Promise<string[]>
+    commitMessages(baseRef: string, headRef?: string): Promise<string[]>
 
   /**
-   * List the files added between baseSha and headSha
-   * If headSha is not given list the files added by baseSha
+   * List the files added between baseRef and headRef
+   * If headRef is not given list the files added by baseRef
    * If the path is given only list the files added with that prefix
-   * @param baseSha The starting Sha
+   * @param baseRef The starting reference
    * @param path The path prefix
-   * @param headSha The ending Sha
-   * @Returns   The files added to the repository between baseSha and headSha
+   * @param headRef The ending reference
+   * @Returns   The files added to the repository between baseRef and headRef
    */
-    added(baseSha: string, path?: string, headSha?: string): Promise<string[]>
+    added(baseRef: string, path?: string, headRef?: string): Promise<string[]>
 
   /**
-   * List the files modified between baseSha and headSha
-   * If headSha is not given list the files modified by baseSha
+   * List the files modified between baseRef and headRef
+   * If headRef is not given list the files modified by baseRef
    * If the path is given only list the files modified with that prefix
-   * @param baseSha The starting Sha
+   * @param baseRef The starting reference
    * @param path The path prefix
-   * @param headSha The ending Sha
-   * @Returns   The files modified in the repository between baseSha and headSha
+   * @param headRef The ending reference
+   * @Returns   The files modified in the repository between baseRef and headRef
    */
-    modified(baseSha: string, path?: string, headSha?: string): Promise<string[]>
+    modified(baseRef: string, path?: string, headRef?: string): Promise<string[]>
 
   /**
-   * List the files deleted between baseSha and headSha
-   * If headSha is not given list the files deleted by baseSha
+   * List the files deleted between baseRef and headRef
+   * If headRef is not given list the files deleted by baseRef
    * If the path is given only list the files deleted with that prefix
-   * @param baseSha The starting Sha
+   * @param baseRef The starting reference
    * @param path The path prefix
-   * @param headSha The ending Sha
-   * @Returns   The files added to the repository between baseSha and headSha
+   * @param headRef The ending reference
+   * @Returns   The files added to the repository between baseRef and headRef
    */
-    deleted(baseSha: string, path?: string, headSha?: string): Promise<string[]>
+    deleted(baseRef: string, path?: string, headRef?: string): Promise<string[]>
 
   /**
-   * List the commits from baseSha to headSha
-   * @param baseSha The starting Sha
-   * @param headSha The ending Sha
+   * List the commits from baseRef to headRef
+   * @param baseRef The starting reference
+   * @param headRef The ending refernce
+   * @returns   The commit reference between the base reference and the head reference
    */
     revList(baseSha: string, headSha: string): Promise<string[]>
 }
