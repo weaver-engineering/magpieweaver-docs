@@ -49,6 +49,7 @@ Numerical argument values are interpreted as `number` unless there are many when
     * `existing-tests-pass`
     * `new-tests-fail`
     * `coverage`
+    * `spec-gate`
 
 
 ## 2. Interfaces
@@ -387,7 +388,7 @@ export interface Inspectors {
 
 
 ### 4.13 coverage
-* required arge
+* required args
   * `--expect-failure`: boolean (if true pass on failing tests else fail on failing tests)
 * validates
   * new line coverage > 90%
@@ -395,3 +396,14 @@ export interface Inspectors {
 * exposes
   * lineCoverage: number (percentage line coverage)
   * newLineConverage: number (percentage new line coverage)
+
+
+### 4.14 spec-gate
+* required-args
+  * None
+* optional-args
+  * `--destination-branch`: string (the destination branch to which a PR would be raised for these changes. default to "main" if not given. )
+* validates
+  * 1 commit between HEAD and mergeBase for the destination branch
+  * HEAD of the destination branch is at the mergeBase between HEAD and the destination branch 
+  * the commit using validate-spec-commit
