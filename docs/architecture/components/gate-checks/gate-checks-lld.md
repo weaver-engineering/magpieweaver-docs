@@ -39,7 +39,7 @@ Numerical argument values are interpreted as `number` unless there are many when
   * `coverage-inspector.ts`   # implementation of `CoverageInspector` using pnpm and reading from `coverage`
   * `checks`
     * `index.ts`              # registry mapping name -> check function
-    * `pr-and-branch-refs.ts` # individual function components
+    * `branch-ref.ts` # individual function components
     * `pr-title`              # each function may receive params from command line
     * `get-inbound-commits`   # each function async and returns a `Promise<GateCheckResult>`
     * `validate-spec-commit`  # or not async and returns a `GateCheckResult`
@@ -50,6 +50,7 @@ Numerical argument values are interpreted as `number` unless there are many when
     * `new-tests-fail`
     * `coverage`
     * `spec-gate`
+    * `test-gate`
 
 
 ## 2. Interfaces
@@ -111,7 +112,7 @@ export type GateCheckFn = (inspectors: Inspectors, args: Record<string, boolean 
 /**
  * The function catalog linking functions and thier required arguments to names
  */
-export type FunctionCatalog = Record<string, GateCheckFn>
+export type FunctionCatalog = Record<string, FunctionDef>
 
 /**
  * A shallow interface to the git command line for the access required
@@ -278,13 +279,13 @@ export interface Inspectors {
 * Exports the function catalog.
 
 
-### 4.4 pr-and-branch-refs.ts
-* requires args
-  * `--head-ref`: string
-  * `--pr-base-ref`: string
+### 4.4 branch-ref.ts
+Validate that the change is coming from an appropriately named branch and its {ref} matches the standards 
+* optional args
+  * `--ref`: string (If given must conform to `[A-Z]+-[0-9]+` must match the `{ref}` from `--head-ref` or the name of the current branch.
+  * `--head-ref`: string (defaults to the name of the current branch)
 * validates
   * `head-ref` matches `*/{ref}`
-  * `pr-base-ref` matches `build/{ref}`
   * `{ref}` matches `[A-Z]+-[0-9]+`
 * exposes
   * ref: string =`${ref}`
@@ -300,8 +301,8 @@ export interface Inspectors {
 
 ### 4.6 get-inbound-commits
 * requires args
-  * `--pr-base-sha`: string
-  * `--pr-head-sha`: string
+  * `--base-ref`: string
+  * `--head-ref`: string
 * validates
   * commits present (fails if pr-head-sha == pr-base-sha)
 * exposes
@@ -309,8 +310,10 @@ export interface Inspectors {
 
 
 ### 4.7 validate-spec-commit
-* requires args
-  * `--spec-commit-sha`: string
+* optional args
+  * `--ref`: string (The `{ref}` in the commit must match this value if given, if not given the `{ref}` in the commit must match `[A-Z]+-[0-9]+`)
+  * `--spec-commit-ref`: string (defaults to `HEAD`)
+* optional args
 * validates
   * commit message title starts with `{ref}`
   * commit message title continues beyond `{ref}`
@@ -322,10 +325,12 @@ export interface Inspectors {
 * exposes
   * task: string = `docs/tasks/task-{ref}/task-{ref}.md`
   * specs: string[] = [`docs/tasks/task-{ref}/task-{ref}-spec.md`, ...]
+  * ref: string =`${ref}`
 
 ### 4.8 validate-test-commit
-* required args
-  * `--test-commit-sha`: string
+* optional args
+  * `--ref`: string (The `{ref}` in the commit must match this value if given, if not given the `{ref}` in the commit must match `[A-Z]+-[0-9]+`)
+  * `--test-commit-ref`: string (defaults to `HEAD`)
 * validates
   * commit message title starts with `{ref}`
   * commit message title continues beyond `{ref}`
@@ -336,11 +341,13 @@ export interface Inspectors {
 * exposes
   * existingTests: string[] = [path-to-test.ts, ...]
   * newTests: string[] = [path-to-test.ts, ...]
+  * ref: string =`${ref}`
 
 
 ### 4.9 validate-build-commit
-* required args
-  * `--build-commit-sha`: string
+* optional args
+  * `--ref`: string (The `{ref}` in the commit must match this value if given, if not given the `{ref}` in the commit must match `[A-Z]+-[0-9]+`)
+  * `--build-commit-ref`: string (defaults to `HEAD`)
 * validates
   * commit message title starts with `{ref}`
   * commit message title continues beyond `{ref}`
@@ -350,11 +357,13 @@ export interface Inspectors {
   * newFiles: string[] = [path-to-new.ts, ...]
   * modifiedFiles: string[] = [path-to-modified.ts, ...]
   * deletedFiles: string[] = [path-to-deleted.ts, ...]
+  * ref: string =`${ref}`
 
 
 ### 4.10 validate-task-commit
 * required args
-  * `--task-commit-sha`: string
+  * `--ref`: string (The `{ref}` in the commit must match this value if given, if not given the `{ref}` in the commit must match `[A-Z]+-[0-9]+`)
+  * `--task-commit-ref`: string (defaults to `HEAD`)
 * validates
   * commit message title starts with `{ref}`
   * commit message title continues beyond `{ref}`
@@ -366,6 +375,7 @@ export interface Inspectors {
   * newTests: string[] = [path-to-new.test.ts, ...]
   * modifiedTests: string[] = [path-to-modified.test.ts, ...]
   * deletedTests: string[] = [path-to-deleted.test.ts, ...]
+  * ref: string =`${ref}`
 
 
 ### 4.11 existing-tests-pass
@@ -402,8 +412,24 @@ export interface Inspectors {
 * required-args
   * None
 * optional-args
+  * `--ref`: string (The value of `{ref}` for validation)
   * `--destination-branch`: string (the destination branch to which a PR would be raised for these changes. default to "main" if not given. )
 * validates
+  * branch name using `branch-ref`. if `--ref` is given it is passed to `branch-ref` to check matching refs. Exposes `ref` for following validation.
   * 1 commit between HEAD and mergeBase for the destination branch
   * HEAD of the destination branch is at the mergeBase between HEAD and the destination branch 
-  * the commit using validate-spec-commit
+  * the commit using `validate-spec-commit` passing in `{ref}`
+
+
+### 4.14 test-gate
+* required-args
+  * None
+* optional-args
+  * `--ref`: string (The value of `{ref}` for validation)
+  * `--destination-branch`: string (the destination branch to which a PR would be raised for these changes. default to "main" if not given. )
+* validates
+  * branch name using `branch-ref`. if `--ref` is given it is passed to `branch-ref` to check matching refs. Exposes `ref` for following validation.
+  * 2 commits between HEAD and mergeBase for the destination branch.
+  * HEAD of the destination branch is at the mergeBase between HEAD and the destination branch.
+  * The first commit is valid using `validate-spec-commit` passing in `{ref}`.
+  * The second commit is valid using `validate-test-commit` passing in `{ref}`.
