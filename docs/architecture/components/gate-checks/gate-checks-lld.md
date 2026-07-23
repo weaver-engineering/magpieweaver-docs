@@ -49,8 +49,9 @@ Numerical argument values are interpreted as `number` unless there are many when
     * `existing-tests-pass`
     * `new-tests-fail`
     * `coverage`
-    * `spec-gate`
     * `test-gate`
+    * `build-gate`
+    * `main-gate`
 
 
 ## 2. Interfaces
@@ -379,6 +380,8 @@ Validate that the change is coming from an appropriately named branch and its {r
 
 
 ### 4.11 existing-tests-pass
+* optional args
+  * `--newTests`: string[] (The list of new tests at least, only new tests may fail, if not given default to `[]`)
 * validates
   * all existing tests pass (requires coverage to have been run)
 * exposes
@@ -388,6 +391,8 @@ Validate that the change is coming from an appropriately named branch and its {r
 
 
 ### 4.12 new-tests-fail
+* optional args
+  * `--newTests`: string[] (The list of new tests at least one of which must fail, if not given default to `[]`)
 * validates
   * at least 1 new test fails (requires coverage to have been run)
 * exposes
@@ -408,7 +413,7 @@ Validate that the change is coming from an appropriately named branch and its {r
   * newLineConverage: number (percentage new line coverage)
 
 
-### 4.14 spec-gate
+### 4.14 test-gate
 * required-args
   * None
 * optional-args
@@ -421,7 +426,7 @@ Validate that the change is coming from an appropriately named branch and its {r
   * the commit using `validate-spec-commit` passing in `{ref}`
 
 
-### 4.14 test-gate
+### 4.14 build-gate
 * required-args
   * None
 * optional-args
@@ -433,3 +438,29 @@ Validate that the change is coming from an appropriately named branch and its {r
   * HEAD of the destination branch is at the mergeBase between HEAD and the destination branch.
   * The first commit is valid using `validate-spec-commit` passing in `{ref}`.
   * The second commit is valid using `validate-test-commit` passing in `{ref}`.
+  * coverage using `coverage` with `--expect-failure` since there should be failing tests to pass the `build-gate`
+  * at least 1 new test fails using `new-test-fail` passing in `newTests` exposed by `validate-test-commit`
+  * existing tests pass using `existing-tests-pass` passing in `newTests` exposed by `validate-test-commit`
+
+
+### 4.15 main-gate
+* required-args
+  * None
+* optional-args
+  * `--ref`: string (The value of `{ref}` for validation)
+  * `--destination-branch`: string (the destination branch to which a PR would be raised for these changes. default to "main" if not given. )
+* validates
+  * branch name using `branch-ref`. if `--ref` is given it is passed to `branch-ref` to check matching refs. Exposes `ref` for following validation.
+  * If the current branch is `build/{ref}` then
+    * 3 commits between HEAD and mergeBase for the destination branch.
+    * The first commit is valid using `validate-spec-commit` passing in `{ref}`.
+    * The second commit is valid using `validate-test-commit` passing in `{ref}`.
+    * The third commit is valid using `validate-build-commit` passing in `{ref}`
+    * The mergeBase between `origin/build/{ref}` and `build/{ref}` is the second commit. i.e. build `build/{ref}` is 1 commit ahead of `origin/build/{ref}`
+  * If the current branch is `task/{ref}` then
+    * 1 commits between HEAD and mergeBase for the destination branch.
+    * The commit is valid using `validate-task-commit` passing in `{ref}`
+  * If the current branch is neither `build/{ref}` nor `task/{ref}` then
+    * fail.
+  * HEAD of the destination branch is at the mergeBase between HEAD and the destination branch.
+  * coverage using `coverage` to ensure all tests pass and coverage is above threshold.
