@@ -104,6 +104,13 @@ type PhaseState =
                      // attached to the SOURCE phase of that PR, not a new
                      // Phase (§3.4) — promote is a safe, idempotent no-op
                      // in this state, on the canonical branch
+  | "merged-pending-pull"     // gh confirms the test/{ref}->build/{ref}
+                     // PR merged, but local build/{ref} doesn't yet
+                     // reflect it. Only `promote` resolves this (pull,
+                     // and — only if pre-existing WIP needs reordering —
+                     // rebase + force-push, §3.3/§3.5). `status`/`list`
+                     // report it read-only, same treatment as the state
+                     // below.
   | "merged-pending-cleanup"; // gh confirms the Main Gate PR merged; only
                      // `promote` acts on this (branch deletion, §3.6) —
                      // `status`/`list` report it read-only
@@ -140,7 +147,7 @@ interface GateCheckResult {
 # CLI surface
 
 pnpm task init <ref> [--quick] [--title <title>] [--doc <path>] [--spec <path>...] [--json]
-pnpm task status [--ref <ref>] [--json]
+pnpm task status [--ref <ref>] [--check] [--json]
 pnpm task list [--json]
 pnpm task promote [--ref <ref>] [--confirm-rebase] [--json]
 pnpm task wip --ref <ref> [--json]
@@ -148,7 +155,10 @@ pnpm task wip --ref <ref> [--json]
 
 `--ref` is optional on `status`/`promote`/`wip` when run from within a task
 branch — inferred from the current branch name. `--json` is supported on
-every command, mirroring `gate-check`'s existing convention.
+every command, mirroring `gate-check`'s existing convention. `--check` on
+`status` opts into running `gate-check` to resolve `ready?` (§3.2) — plain
+`status` and `list` never do, since it's slow; `promote` always does,
+since it can't safely act without knowing.
 
 ## 3. Design Notes
 
@@ -194,28 +204,46 @@ distinct kinds of check, deliberately kept separate:
   alongside the merged check. This produces the `awaiting-pr` `PhaseState`
   (§2), attached to the **source** phase of that PR, not a new `Phase` of
   its own — see §3.4.
+- **"Is `ready?` actually `ready` or `blocked`?"** — deliberately **not**
+  resolved on every command. Running `gate-check` is slow (full test
+  suite, coverage, the unicorn linter) and unnecessary for a plain status
+  read. `ready?` is only resolved into `ready`/`blocked` by `promote`
+  (always) or `status --check` (opt-in) — see the bottom of the pseudocode
+  below and §4.4.
 
 ```
 git fetch origin   // always, before deriving anything
 
 if gh reports a MERGED PR: (build/{ref} or task/{ref}) -> main
-     -> merged-pending-cleanup (see 3.3, 3.6)
+     -> phase = build (or quick); state = merged-pending-cleanup (3.3, 3.6)
 else if gh reports an OPEN PR: (build/{ref} or task/{ref}) -> main
      -> phase = build (or quick); state = awaiting-pr
 else if gh reports a MERGED PR: test/{ref} -> build/{ref}
+        AND test/{ref}'s current HEAD == that PR's recorded headRefOid
      -> phase = build
-        (sync local build/{ref} to origin/build/{ref} if behind — 3.3)
+        if local build/{ref} doesn't exist, or its HEAD != origin/build/{ref}
+             -> state = merged-pending-pull (only `promote` resolves — 3.3)
+        else
+             -> state = not-started | work-in-progress | ready?
 else if gh reports an OPEN PR: test/{ref} -> build/{ref}
      -> phase = test; state = awaiting-pr
+        (ancestry check against spec/{ref} — staleness only, 3.5)
 else if test/{ref} exists
-     -> phase = test
+     -> phase = test; state = not-started | work-in-progress | ready?
         (ancestry check against spec/{ref} — staleness only, 3.5)
 else if spec/{ref} exists
-     -> phase = spec
+     -> phase = spec; state = not-started | work-in-progress | ready?
+        (ancestry check against main — staleness only, 3.5)
 else if task/{ref} exists
-     -> phase = quick
+     -> phase = quick; state = not-started | work-in-progress | ready?
+        (ancestry check against main — staleness only, 3.5)
 else
      -> not-initialised
+
+if state == ready? and the invoking command is `promote` or `status --check`
+     -> resolve ready? into ready or blocked by running gate-check for
+        this phase's destination gate (3.7). Every other invocation
+        (plain `status`, `list`) reports `ready?` as-is, unresolved.
 ```
 
 Each ancestry check is `git merge-base --is-ancestor <parent-HEAD>
@@ -261,22 +289,40 @@ This is now the **only** merge-detection mechanism in the tool. Ancestry
 check in §3.4 — a question about the tool's own fork relationships, never
 about a GitHub-mediated merge, so it isn't affected by any of the above.
 
-**Automatic vs. gated actions on detection:**
+**Every gated transition needs two separate `promote` calls, not one —
+this applies uniformly to both merge points, correcting an earlier draft
+that treated the test→build pull as automatic and safe on any command.**
+The first `promote` call, when `ready`, raises the destination-gate PR.
+Merging happens externally, on GitHub's own timescale (human review).
+Only a *second*, later `promote` call — invoked once `gh` confirms the
+merge — processes the result: pulling `build/{ref}` locally (and, only if
+pre-existing WIP needs reordering, rebasing it — §3.5's cascading case)
+for the test→build leg, or deleting branches (§3.6) for the final leg.
+`status`/`list` never perform either of these actions themselves; they
+only report which `merged-pending-*` state applies, exactly as they do for
+`ready?` (§3.2).
 
-- **`test/{ref}` → `build/{ref}` merged:** non-destructive — either
-  creating local `build/{ref}` for the first time (tracking
-  `origin/build/{ref}`) or fast-forwarding it. This runs automatically as
-  part of the fetch-then-derive step **every** command performs (`status`,
-  `list`, `promote`, `wip`'s ref check) — no confirmation needed, since
-  nothing can be lost and accurately answering "what state is this task
-  in" requires it regardless of which command was invoked.
-- **`build/{ref}`/`task/{ref}` → `main` merged:** `status`/`list` report
-  this read-only, as `merged-pending-cleanup` (§2). The actual cleanup
-  (branch deletion, §3.5) is destructive enough that it stays `promote`-
-  only — but unlike rebase-forward (§3.4), it runs **without** requiring
-  `--confirm-rebase` or a prompt: once the change is confirmed merged into
-  `main`, nothing is lost by deleting the now-fully-absorbed branches, so
-  there's no equivalent risk to gate against.
+- **`test/{ref}` → `build/{ref}` merged, local not yet caught up:**
+  reported as `merged-pending-pull` (§2). Resolving it is `promote`-only,
+  and splits into two cases: if `build/{ref}` had no pre-existing
+  build-phase commits, this is a plain, non-destructive pull (creating
+  local `build/{ref}` tracking `origin/build/{ref}`, or fast-forwarding
+  it) — safe, but still gated behind an explicit `promote` call rather
+  than happening automatically on `status`/`list`, for consistency with
+  the case below (and because a reader of a plain `status` shouldn't have
+  their local branches silently mutated by what looks like a read-only
+  command). If `build/{ref}` *did* have pre-existing build-phase commits
+  (the cascading case, §3.5), this pull additionally requires rebasing
+  those commits onto the fresh merge and force-pushing — gated by the same
+  `--confirm-rebase`/prompt mechanism as every other rewrite in this
+  design.
+- **`build/{ref}`/`task/{ref}` → `main` merged:** reported as
+  `merged-pending-cleanup` (§2). The actual cleanup (branch deletion,
+  §3.6) is `promote`-only — but unlike rebase-forward and the WIP-reorder
+  case above, it runs **without** requiring `--confirm-rebase` or a
+  prompt: once the change is confirmed merged into `main`, nothing is lost
+  by deleting the now-fully-absorbed branches, so there's no equivalent
+  risk to gate against.
 
 ### 3.4 Canonical branch and the branch/phase mismatch guard
 
@@ -367,8 +413,77 @@ different mechanisms depending on how the tool is being run:
   rebase is required — it neither performs the rebase silently nor blocks
   with an unexplained failure.
 
-The same rebase-forward logic applies one level up if `test/{ref}` is
-amended after `build/{ref}` has already forked from it.
+**This silent, tool-only rebase does *not* extend one level up to
+`test/{ref}` → `build/{ref}`, and an earlier revision of this document
+was wrong to say it did.** That hop is a human-reviewed gate (Build Gate),
+unlike spec→test — silently rebasing `build/{ref}` onto amended test
+content without a fresh review would let changed test content reach
+`build/{ref}` unreviewed, reopening exactly the bypass closed in §3.4/§3.7.
+So when `test/{ref}` is amended after an earlier Build Gate PR already
+merged, §3.2's derivation correctly falls back to reporting `phase = test`
+again (the merged-PR evidence is superseded once `test/{ref}`'s HEAD no
+longer matches what was actually merged) — and getting back to `build`
+requires a **genuinely new** Build Gate PR, reviewed like the first one,
+not a silent history rewrite. The full sequence:
+
+1. **Detection** (§3.2): once `test/{ref}`'s current HEAD differs from the
+   existing merged Build Gate PR's recorded `headRefOid`, that merge is
+   treated as superseded, and phase falls back to `test`.
+2. **A fresh Build Gate PR is raised** (`test/{ref}` → `build/{ref}`) —
+   the ordinary test-phase `ready` action (first `promote` call), requiring
+   genuine human re-review since content has changed since the original
+   review. No preparation of `build/{ref}` is needed beforehand — the PR
+   is raised against `build/{ref}` exactly as it currently stands, WIP and
+   all; GitHub will simply append the fresh squash commit after whatever's
+   already there.
+3. **Once that PR merges**, `build/{ref}` (on origin) temporarily has the
+   *wrong* commit order if it already carried build-phase work — `spec,
+   test-old, build-WIP, test-new` rather than `spec, test-new, build-WIP`.
+   This is left as-is on origin; it is not corrected at merge time.
+4. **The second `promote` call**, invoked once `gh` confirms the merge
+   (`merged-pending-pull`, §3.3), is where the reorder actually happens:
+   it rebases the pre-existing build-phase commit(s) onto the fresh merge
+   result and force-pushes, restoring the clean `spec, test, build` order
+   — this is the one and only point in the whole sequence where that
+   reordering occurs.
+
+Both PR-raising (step 2) and the pull/reorder (step 4) go through
+`promote`'s ordinary gates independently — step 2 needs no special
+confirmation (opening a PR isn't destructive); step 4 is force-push-
+adjacent and goes through the same `--confirm-rebase`/prompt mechanism as
+every other rewrite in this design, at whatever later point in time
+`promote` is actually invoked to process the now-merged PR (step 2's PR
+may take an arbitrary amount of real time to actually get reviewed).
+
+This is judged **safe to attempt automatically** (once confirmed) at step
+4 specifically because of the strict, mutually exclusive file scoping
+between phases enforced by the gates themselves — the test phase touches
+only `/test`, the build phase touches only `/src` — so a genuine conflict
+during that rebase should essentially never occur if that discipline
+holds. (Any refinement to that file-scoping discipline — e.g. interface
+files needing special handling — is `gate-check`'s scope-rule concern, not
+something this document tracks.) On the rare case of an actual conflict
+during step 4's rebase, `promote` surfaces it directly rather than
+attempting to resolve it — the newly-merged, human-reviewed test content
+takes precedence, and the agent must adjust their build-phase WIP to
+match it, never the reverse.
+
+**The same treatment applies one level down, too: `main` moving ahead of
+`spec/{ref}` or `task/{ref}`.** Unlike the within-task cases above, this
+isn't about an earlier *phase* of this task being amended — it's ordinary
+drift as `main` advances from other tasks merging while this one is still
+in flight. It gets the identical rebase-forward treatment rather than
+being left as an ignorable, eventual-integration concern: `promote`, on
+finding `spec/{ref}` (or `task/{ref}`) behind `main`'s current HEAD,
+rebases it onto `main` in place and force-pushes, gated by the same
+`--confirm-rebase`/prompt mechanism as above — it does not silently
+proceed, and does not treat this as merely informational. There is no
+extra safety check equivalent to the `merge-base` verification above
+here, since `main` is the trunk, not a tool-managed fork point — any
+commit reachable from `spec/{ref}`/`task/{ref}` that isn't yet on `main`
+is, by construction, this task's own unmerged work, so rebasing onto
+`main`'s current tip can't discard anything that wasn't put there by this
+same task.
 
 ### 3.6 Final cleanup — only at Main Gate merge
 
@@ -495,13 +610,20 @@ part of phase-state derivation, not a prefix/suffix convention.
 - **Chunked specs** (`task-{ref}-00-spec.md`, `-01-spec.md`, ...) and how
   they interact with concurrent-branch state — acknowledged as relatively
   likely in practice, but not designed. `TaskRef`/`TaskStatus` carry no
-  chunk field yet.
+  chunk field yet. (Note: `test/{ref}` moving past an already-merged Build
+  Gate PR due to an upstream spec amendment is a *different* case, now
+  fully designed in §3.2/§3.5 — not to be confused with this one, which is
+  specifically about deliberate, planned additional scope under the same
+  ref.)
 - **Concurrency** — an `init` target whose branch has genuinely unmerged
   commits blocks outright, with no override flag, until this is designed.
 - **`lib/task-doc.ts`** — scaffolding/import behaviour confirmed valuable,
   template format and prompt flow not yet specified.
 - **CLI surface stability** — expected to change as real pinch points
   surface in use; nothing above is being treated as locked.
+- **`list --check`** — whether bulk `ready?` resolution across every
+  in-flight ref is worth adding (cost scales with number of active tasks,
+  unlike `status --check`'s single-ref cost) — not decided either way.
 
 ## 4. Component Details
 
@@ -520,12 +642,19 @@ Exports `commandRegistry: Record<string, CommandHandler>` mapping `init`,
 means adding one file under `commands/` plus one entry here.
 
 ### 4.4 `commands/*.ts`
-- `status.ts` / `list.ts` — run the fetch → merge-status/open-PR/ancestry-
-  derive → gate-check pipeline (§3.2–§3.3) and report `TaskStatus`
-  (including `branchMismatch`, §3.4) without acting on it. `list.ts` does
-  this across every ref with an active branch; `status.ts` for one ref
-  (explicit or inferred).
-- `promote.ts` — runs the same pipeline and acts on the result:
+- `status.ts` — runs the fetch → merge-status/open-PR/ancestry-derive
+  pipeline (§3.2–§3.3) and reports `TaskStatus` (including
+  `branchMismatch`, §3.4) without acting on it. Resolves `ready?` into
+  `ready`/`blocked` only when invoked with `--check` (§3.2); otherwise
+  reports `ready?` unresolved, since `gate-check` is slow and a plain
+  status read shouldn't pay that cost.
+- `list.ts` — the same pipeline across every ref with an active branch;
+  never resolves `ready?` (no `--check` equivalent — see the open
+  question in §3.9 on whether bulk resolution across many refs is worth
+  adding later).
+- `promote.ts` — runs the same pipeline and acts on the result, **always**
+  resolving `ready?` via `gate-check` where reached (it can't safely act
+  without knowing):
   - `branchMismatch` → refuses to act on anything else below; reports the
     mismatch (§3.4).
   - `awaiting-pr` → no action; re-reports the open PR (§3.4) — safe,
@@ -534,7 +663,14 @@ means adding one file under `commands/` plus one entry here.
     open via `lib/git.ts`/`lib/gh.ts`), per §3.7's table.
   - phase is `spec` but `test/{ref}` already exists (§3.5) → rebase +
     force-push, gated on `--confirm-rebase` or an interactive prompt.
+  - `spec/{ref}`/`task/{ref}` behind `main` (§3.5) → same rebase-forward
+    treatment, same confirmation gate.
   - `blocked` → no git/gh action; relays `gate-check`'s own `checks[]`.
+  - `merged-pending-pull` (§3.3) → pulls `build/{ref}` locally; if
+    pre-existing build-phase commits need reordering onto the fresh merge
+    (§3.5's cascading case), rebases and force-pushes, gated on
+    `--confirm-rebase` or an interactive prompt — otherwise a plain,
+    unconfirmed pull.
   - `merged-pending-cleanup` (§3.3, §3.6) → performs final cleanup.
 - `init.ts` — implements the existing-ref decision tree (doc exists? /
   branch exists? / branch merged?) from the prior revision, using
@@ -546,11 +682,13 @@ means adding one file under `commands/` plus one entry here.
 Fetches `origin`; derives phase via `lib/gh.ts`'s merge-status and open-PR
 checks first (§3.2/§3.3), falling back to branch existence, then runs the
 ancestry staleness check (§3.5) against whichever phase is derived; also
-computes the canonical-vs-current branch mismatch (§3.4). Detects the WIP
-marker (§3.8) and dirty-worktree state to distinguish `not-started` /
-`work-in-progress` from a state requiring gate-check resolution. Also
-performs the automatic, non-destructive local-branch sync (§3.3) as part
-of this same step.
+computes the canonical-vs-current branch mismatch (§3.4) and, where
+relevant, whether local `build/{ref}` matches `origin/build/{ref}`
+(`merged-pending-pull`, §3.3). Detects the WIP marker (§3.8) and dirty-
+worktree state to distinguish `not-started` / `work-in-progress` from a
+state requiring gate-check resolution. Reports these states only — it
+never mutates local branches itself; that's `promote`'s job exclusively
+(§3.3, §4.4).
 
 ### 4.6 `lib/gate-check.ts`
 Thin typed wrapper importing `@magpieweaver/gate-check` directly as a
