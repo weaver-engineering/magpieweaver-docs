@@ -298,6 +298,16 @@ blocking a direct push to `origin/build/{ref}` without a reviewed PR from
 hard prerequisite this whole design depends on, not something
 `task-phases` itself enforces).
 
+**This guard only protects an agent that actually uses `promote`.** An
+agent can bypass `task-phases` entirely — `gh pr create --base main --head
+build/{ref}` directly — and `task-phases` has no visibility into that at
+all. So `branchMismatch` is a UX convenience that keeps an honest user of
+the tool from confusing itself; it is **not** the actual security
+boundary. That boundary has to be a mechanical, CI-side assertion inside
+`main-gate` itself (owned by `gate-check`, not this tool), since that's
+the one check that runs as a required status check regardless of how the
+PR was opened — see the requirement recorded in §3.7.
+
 Concretely: if `gh` shows the Build Gate PR still open, derivation reports
 `phase = test, state = awaiting-pr` — regardless of the agent sitting on
 `build/{ref}` with new local commits. `promote`, seeing `currentBranch !=
@@ -427,6 +437,35 @@ the branching doc's own branch definitions. This is the actual backstop
 against an agent bypassing genuine human review of test-phase content by
 committing directly to a later-phase branch (§3.4); `task-phases` depends
 on this being configured correctly, and cannot itself enforce it.
+
+**Additional required assertion, owned by `gate-check`'s `main-gate`
+implementation, not by `task-phases`:** `task-phases`'s own
+`branchMismatch` guard (§3.4) only protects an agent that actually invokes
+`promote` — nothing stops an agent from bypassing `task-phases` entirely
+and opening a `build/{ref}`/`task/{ref}` → `main` PR directly via `gh` or
+the GitHub UI. Since `main-gate` runs as a required status check
+regardless of how the PR was opened, it is the only place this can
+actually be closed, and it must independently assert, as part of its own
+evaluation of every `main-gate` PR:
+
+1. **No PR is currently open from `test/{ref}` → `build/{ref}`.** If one
+   is open, `main-gate` fails outright — even if `build/{ref}`'s commit
+   count happens to look structurally plausible — because an unresolved
+   Build Gate PR means the content on `build/{ref}` can't yet be trusted
+   as genuinely reviewed.
+2. **`origin/build/{ref}` is confirmed as the only path this content could
+   have legitimately reached** — cheap to assert precisely because direct
+   pushes to `origin/build/{ref}` are already blocked by branch protection
+   (a merged PR from `test/{ref}` is the only route in). This is
+   defense-in-depth against the one acknowledged escape hatch elsewhere in
+   the design — the architect's manual override (Guard Rails §3, per the
+   Architecture Definition Document) — not something needed in the
+   well-behaved case.
+
+This is recorded here as a **cross-cutting requirement on
+`gate-checks-lld.md`**, not something `task-phases` implements itself —
+flagged explicitly so it isn't lost between the two documents' respective
+scopes.
 
 ### 3.8 `task wip`
 
