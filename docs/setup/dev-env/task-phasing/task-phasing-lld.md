@@ -56,27 +56,32 @@ are pure CI/CD and outside this tool entirely.
 packages/task-phases/
   cli.ts                  # argv parsing + dispatch only
   types.ts                # shared types (TaskRef, Phase, TaskState, ...)
-  registry.ts              # subcommand name -> handler; cli.ts dispatches
-                           # through this so new commands don't touch cli.ts
+  registry.ts             # subcommand name -> handler; cli.ts dispatches
+                          # through this so new commands don't touch cli.ts
   commands/
-    init.ts                # pnpm task init <ref> [--quick] ...
-    status.ts               # pnpm task status [--ref <ref>]
-    list.ts                  # pnpm task list
-    promote.ts                # pnpm task promote [--ref <ref>] [--confirm-rebase]
-    wip.ts                     # pnpm task wip --ref <ref>
-  lib/
-    repo-state.ts             # fetch + gh merge-status + ancestry staleness
-                              # -> {ref, phase}; WIP detection
-    gate-check.ts               # typed wrapper around @magpieweaver/gate-check,
-                                # mapping Phase -> the correct check function
-    git.ts                       # branch create/checkout/push/rebase primitives,
-                                 # used only by init and promote's ready path
-    gh.ts                         # PR creation + merged-PR lookup — the sole
-                                  # merge-detection mechanism, used at both
-                                  # test->build and the final Main Gate
-    task-doc.ts                   # task-{ref}.md / task-{ref}-NN-spec.md
-                                  # template scaffolding and spec-chunk import
-                                  # (parked for detailed design — see §3)
+    init.ts               # pnpm task init <ref> [--quick] ...
+    status.ts             # pnpm task status [--ref <ref>]
+    list.ts               # pnpm task list
+    promote.ts            # pnpm task promote [--ref <ref>] [--confirm-rebase]
+    wip.ts                # pnpm task wip --ref <ref>
+    task.ts               # pnpm task <ref> [--json]  
+  lib/                    # reused logic across the commands
+    repo-state.ts         # fetch + gh merge-status + ancestry staleness
+                          # -> {ref, phase}; WIP detection
+    task-doc.ts           # task-{ref}.md / task-{ref}-NN-spec.md
+                          # template scaffolding and spec-chunk import
+                          # (parked for detailed design — see §3)
+  deps/                   # thin shims over external dependencies mocked by system level
+                          # behaviour testing against external dependencies.
+    gate-check.ts         # typed wrapper around @magpieweaver/gate-check,
+                          # mapping Phase -> the correct check function
+    git.ts                # branch create/checkout/push/rebase primitives,
+                          # used only by init and promote's ready path
+    gh.ts                 # PR creation + merged-PR lookup — the sole
+                          # merge-detection mechanism, used at both
+                          # test->build and the final Main Gate
+    fs.ts                 # file system operations to read dirs, templates, task docs and specs
+                          # and write dirs, task docs and specs.
 ```
 
 `@magpieweaver/gate-check` is a workspace dependency (`workspace:*`),
@@ -87,6 +92,18 @@ every pass/fail judgment comes from that package.
 
 ```typescript
 // types.ts
+interface TaskPhasesConfig { // `.task-phases.json somewhere in the cwd path (repo root).  
+  templates: {
+    task: string; // path from .task-phases.json to the task template
+  }
+  tasks: {
+      docs?: string // path from .task-phases.json to the task docs directory
+                    // default to "docs/tasks/"
+      dirName?: string // pattern for the task dir defaults to "task-${ref}"
+      taskDocName?: string // pattern for the task doc name, default to "task-${ref}"
+      specDocNames?: string // pattern for the spec docs defaults to task-${ref}-${nn}-spec.md
+  }
+}
 
 type TaskRef = string; // matches /^[A-Z]+-[0-9]+$/
 
@@ -135,30 +152,128 @@ interface TaskStatus {
   };
 }
 
-// Placeholder narrowing of @magpieweaver/gate-check's real return type —
-// to be confirmed against that package before implementation.
-interface GateCheckResult {
-  ok: boolean;
-  checks: Array<{ id: string; passed: boolean; detail?: string }>;
+// the command invoked
+type Command = "init" | "status" | "list" | "promote" | "wip" | "ref";
+
+interface TaskPhasingResult {
+    command; Command;         // the task phasing command that was invoked
+    args: Record<string, boolean | number | string | string[]>;
+                              // a string map of the argument values given
+    taskStatus: TaskStatus     // the derived status of the task at the end of
+                               // command execution
+    result: TaskPhasingCommandResult;
+                                // the result returned from the executed command
+}
+
+interface TaskPhasingCommandResult {
+    messages: string[];         // messages surfaced to the caller by the command
+                                // execution
+    success: boolean;           // true if the command completed successfully
+                                // false if the command failed
+    violation?: string;          // any detected task phasing voliation.
+    suggestedActions?: string[]; // suggested actions to resolve the violation.
+} // throws invalid-arguements
+/**
+ * The signature of all task-phasing functions.
+ * Each function receives the inspectors and parsed CLI arguments,
+ * and returns a GateCheckResult synchronously or asynchronously.
+ */
+export type TaskPhasingFn = (
+    tools: ExternalTools,
+    args: Record<string, boolean | number | string | string[]>,
+) => Promise<TaskPhasingCommandResult> | TaskPhasingCommandResult;
+
+/**
+ * The function catalog linking function definitions to command names.
+ */
+export type FunctionCatalog = Record<Command, TaskPhasingFn>;
+
+/**
+ * The external tools to be passed to each task-phasing function call.
+ * Provides access to git, github, gate-checks and file-system operations
+ */
+export interface ExternalTools {
+    /** The git tool instance for the function to use if it needs it */
+    git: GitTool;
+
+    /** The github tool for the function to use if it needs it */
+    github: GitHubTool;
+    
+    /** The gate-checks tool for the function to use if it needs it */
+    gateChecks: GateChecksTool;
+    
+    /** The file system tool for the function to use if it needs it */
+    fileSystem: FileSystemTool;
+}
+
+// Actual interface of @magpieweaver/gate-check's return type
+// For information only do not implement.
+export interface GateCheckResult {
+    /** The name of the check */
+    check: string;
+
+    /** The arguments passed to the check */
+    args: Record<string, boolean | number | string | string[]>;
+
+    /** Whether the check passed or not */
+    passed: boolean;
+
+    /** Information messages provided by the check */
+    messages: string[];
+
+    /** Violation messages provided by the check */
+    violations: string[];
+
+    /** A brief summary of the status of the check */
+    summary: string;
+
+    /** Values exported by the check to be passed to other checks */
+    values: Record<string, boolean | number | string | string[]>;
 }
 ```
 
 ```
 # CLI surface
 
-pnpm task init <ref> [--quick] [--title <title>] [--doc <path>] [--spec <path>...] [--json]
-pnpm task status [--ref <ref>] [--check] [--json]
+pnpm task init <ref> [--quick] [--title <title>] [--doc <path>] [--spec <path>...] [--wip [title] [message]] [--json]
+pnpm task status [--fix [branch]] [--wip [title] [message]] [--check] [--json]
 pnpm task list [--json]
-pnpm task promote [--ref <ref>] [--confirm-rebase] [--json]
-pnpm task wip --ref <ref> [--json]
+pnpm task promote [--confirm-rebase] [--json]
+pnpm task wip [title] [message] [--json]
+pnpm task <ref> [--wip [title] [message]] [--json]
 ```
 
-`--ref` is optional on `status`/`promote`/`wip` when run from within a task
-branch — inferred from the current branch name. `--json` is supported on
-every command, mirroring `gate-check`'s existing convention. `--check` on
-`status` opts into running `gate-check` to resolve `ready?` (§3.2) — plain
-`status` and `list` never do, since it's slow; `promote` always does,
-since it can't safely act without knowing.
+* `init` initialise the task `<ref>`. It creates the required task documentation and copies in the 
+    given specs. WIP can be commited in place or carried forward into the new task.
+* `status` evaluates the status of the current task through inspection of the repos branches and commits
+    it can automatically checkout the canonical branch and optionally commit WIP on its current branch
+    or carry it forward onto the canonical branch.
+* `list` queries the branches and commits, lists the active tasks with their derived phase and status.
+* `promote` inspects the phase and status of the current branch, confirms the canonical branch is current,
+    runs the `gate-check` for the phase and if `ready` promotes the task to the next phase.
+* `wip` commits work in progress on the current branch with the `WIP` marker using the optional `title` and
+    `message`.
+* `<ref>` switches to the canonical branch of the given `<ref>` (matches `[A-Z]+-[0-9]+`) optionally
+    committing work in progress in its current location of carrying it forward to the new task.
+
+
+* `--json` is supported on every command, and causes only json output to be written
+    to standard out for machine analysis. 
+* `--quick` on `init` initialises a quick task (checks out `task/<ref?`)
+* `--title <title>` on `init` sets the title of the task doc.
+* `--doc <path>` on `init` copies the <path> to the task doc.
+* `--spec <path>...` on `init` copies the paths to spec docs for the task.
+* `--fix [branch]` on `status` sets the current branch to the canonical branch (`branch`)
+    is an optional key work supporting other auto fixes in the future).
+* `--wip [title] [message]` on `init`, `status` and `<ref>` commits changes to the current branch before
+    switching branches. if `--wip` is not given then work in progress is left un-committed and the branch 
+    switched underneath it, switching branches `status --fix` or `<ref>` without `--wip` fails on merge
+    conflicts.
+* `--check` on`status` opts into running `gate-check` to resolve `ready?` (§3.2) — plain
+    `status` and `list` never do, since it's slow; `promote` always does if it needs to, since it can't 
+    safely act without knowing. 
+* `--confirm-rebase` on promote allows headless rebase spec -> test or test -> build
+
 
 ## 3. Design Notes
 
@@ -168,15 +283,7 @@ since it can't safely act without knowing.
 (each branching from its parent's HEAD at the point of promotion), not as
 successive renames of a single branch. All three (or, on the quick route,
 just `task/{ref}`) stay alive simultaneously for the life of the task.
-
-This is a deliberate reversal of an earlier draft of this design, which
-modelled spec→test as a rename. A rename destroys the earlier branch
-object, which is incompatible with amending an earlier phase and rolling
-the change forward (§3.4) — there would be nothing left to amend. "Only
-one branch per task" is therefore **not** a literal git constraint; it's a
-statement about what's authoritative for phase derivation (§3.2) — the
-furthest-forward branch reachable from the task's history, not a claim
-that earlier branches don't exist.
+(Appendix - §3.1)
 
 Branches are deleted **only once**, together, when the task's Main Gate PR
 merges (§3.5) — never incrementally as each intermediate PR merges.
@@ -263,24 +370,7 @@ merge points (`test/{ref}` → `build/{ref}`, and `build/{ref}`/`task/{ref}`
 → `main`).** This was not the original design — an earlier draft assumed
 `test/{ref}` → `build/{ref}` merges could be detected via `merge-base
 --is-ancestor` (or literal SHA equality), reasoning that this merge stays
-outside the squash step and so should preserve ancestry.
-
-That assumption was dropped after checking GitHub's actual merge options:
-GitHub's PR merge UI/API offers three methods — merge commit, squash, and
-rebase — and **none of them is a true fast-forward that preserves the
-source branch's original commit objects.** "Rebase and merge" looks
-closest, but it replays commits onto the target as *new* commit objects
-(new SHAs, same tree content), so even it breaks an ancestry check against
-the original `test/{ref}` commits. Forcing a genuine FF-only merge is
-possible but only via third-party GitHub Actions or manual CLI
-intervention outside the merge button — not a native repo setting — which
-would make the gate's own reliability depend on whoever clicks the merge
-button also correctly using an unusual, unenforced workflow. That's a
-worse failure mode than the problem it would solve: a single ordinary
-merge-commit click would silently leave the phase-detection logic unable
-to see the merge at all, with no natural error surfaced — exactly the
-"needs retrospective branch/commit cleaning" scenario this design is meant
-to avoid causing.
+outside the squash step and so should preserve ancestry. (Appendix - §3.3)
 
 `gh`-based detection sidesteps this entirely: it never compares commit
 SHAs, so it's correct regardless of which merge method was actually used.
@@ -389,17 +479,7 @@ is `spec`, but `test/{ref}` already exists), must rebase `test/{ref}` onto
 the new `spec/{ref}` HEAD in place, then force-push it — rather than
 either deleting-and-recreating it (which would discard any real
 test-phase-specific commits already on it) or refusing outright.
-
-This is judged safe **specifically because** branch-lifecycle discipline
-is strict elsewhere in this design: `test/{ref}` can only ever have been
-created by `init`/`promote` itself, forked from `spec/{ref}` at some prior
-HEAD — so its existence in this state is proof it's a legitimate,
-rebase-able descendant, not an unrelated branch someone created by hand.
-`promote` still verifies this rather than assuming it blindly: before
-rebasing, it confirms `git merge-base <old-spec-HEAD> test/{ref}` actually
-resolves to a commit on `spec/{ref}`'s prior history, turning "this must be
-true given our discipline" into "this is confirmed true" before rewriting
-anything.
+(Appendix - §3.5.a)
 
 Because this is the sharpest action `promote` performs (a force-push,
 rewriting a branch's history), it requires explicit confirmation, via two
@@ -454,19 +534,8 @@ adjacent and goes through the same `--confirm-rebase`/prompt mechanism as
 every other rewrite in this design, at whatever later point in time
 `promote` is actually invoked to process the now-merged PR (step 2's PR
 may take an arbitrary amount of real time to actually get reviewed).
+(Appendix - §3.5.b)
 
-This is judged **safe to attempt automatically** (once confirmed) at step
-4 specifically because of the strict, mutually exclusive file scoping
-between phases enforced by the gates themselves — the test phase touches
-only `/test`, the build phase touches only `/src` — so a genuine conflict
-during that rebase should essentially never occur if that discipline
-holds. (Any refinement to that file-scoping discipline — e.g. interface
-files needing special handling — is `gate-check`'s scope-rule concern, not
-something this document tracks.) On the rare case of an actual conflict
-during step 4's rebase, `promote` surfaces it directly rather than
-attempting to resolve it — the newly-merged, human-reviewed test content
-takes precedence, and the agent must adjust their build-phase WIP to
-match it, never the reverse.
 
 **The same treatment applies one level down, too: `main` moving ahead of
 `spec/{ref}` or `task/{ref}`.** Unlike the within-task cases above, this
@@ -508,12 +577,12 @@ scope, per §1.1.
 
 Gates are named `<destination>-gate`:
 
-| From | To | Gate | Externally enforced (branch protection)? |
-|---|---|---|---|
-| `spec/{ref}` | `test/{ref}` | `test-gate` | No |
-| `test/{ref}` | `build/{ref}` | `build-gate` | Yes |
-| `build/{ref}` | `main` | `main-gate` | Yes |
-| `task/{ref}` | `main` | `main-gate` | Yes (same gate, different inbound-commit-count validation) |
+| From          | To            | Gate         | Externally enforced (branch protection)?                   |
+|---------------|---------------|--------------|------------------------------------------------------------|
+| `spec/{ref}`  | `test/{ref}`  | `test-gate`  | No                                                         |
+| `test/{ref}`  | `build/{ref}` | `build-gate` | Yes                                                        |
+| `build/{ref}` | `main`        | `main-gate`  | Yes                                                        |
+| `task/{ref}`  | `main`        | `main-gate`  | Yes (same gate, different inbound-commit-count validation) |
 
 `main-gate` rejects any PR whose source isn't `build/{ref}` or
 `task/{ref}`.
@@ -582,11 +651,118 @@ This is recorded here as a **cross-cutting requirement on
 flagged explicitly so it isn't lost between the two documents' respective
 scopes.
 
-### 3.8 `task wip`
+### 3.8 `task init`
 
 ```
-pnpm task wip --ref <ref> [--json]
+pnpm task init <ref> [--quick] [--title <title>] [--doc <path>] [--spec <path>...] [--wip [title] [message]] [--json]
 ```
+
+implements the existing-ref decision tree (doc exists? /
+branch exists? / branch merged?) from the prior revision, using
+`lib/task-doc.ts` and `lib/git.ts`. The "branch exists with unmerged
+commits" call remains a hard, unconditional block (§3.9).
+
+initialise the task `<ref>`. It creates the required task dir and documentation and copies 
+in the given specs. WIP can be commited in place or carried forward into the new task.
+on of `title` or `doc` is required.
+creates task dir if it does not exist.
+if `--doc <path>` given and task doc does not exist
+  -> copy path to task dir as task doc
+else if `--title <title>` is given and the task doc does not exist
+  -> copy task template to task dir as task doc (replacing ${ref} and ${title})
+if `--spec <path>...` is given
+  -> for each `<path>`
+    -> copy `<path>` to task dir as specification doc. 
+if `--wip [title] [message]` is given
+  -> commit WIP on current branch (new commit can always be squashed later to open the gate)
+     `title` and `message` if given are included in the commit.
+
+
+### 3.9 `tssk status`
+
+```
+pnpm task status [--fix [branch]] [--wip [title] [message]] [--check] [--json]
+```
+
+derive the status of the current task through inspection of the repos branches and commits
+it can automatically checkout the canonical branch and optionally commit WIP on its current branch
+or carry it forward onto the canonical branch.
+
+runs the fetch → merge-status/open-PR/ancestry-derive
+pipeline (§3.2–§3.3) and reports `TaskStatus` (including
+`branchMismatch`, §3.4) without acting on it. Resolves `ready?` into
+`ready`/`blocked` only when invoked with `--check` (§3.2); otherwise
+reports `ready?` unresolved, since `gate-check` is slow and a plain
+status read shouldn't pay that cost.
+
+if `--fix [branch]` given
+  if branch miss match
+    if `--wip [title] [message]` and uncommited changes
+      -> commit WIP
+    -> switch to the canonical branch.
+
+if `--check` and derived status is `ready?`
+  -> run the `gate-check` for the phase.
+  -> update phase status (ready | blocked)
+
+### 3.10 `task list`
+
+```
+pnpm task list [--json]
+```
+
+queries the branches and commits, lists the active tasks with their derived phase and status.
+
+the same pipeline across every ref with an active branch;
+never resolves `ready?` (no `--check` equivalent — see the open
+question in §3.9 on whether bulk resolution across many refs is worth
+adding later).
+
+List all branches in the repo
+filter on branches matching `/[A-Z]+-[0-9]+$` (`*/{ref}`)
+group by `{ref}`
+For each `{ref}` output
+- `{ref}` phase: `{phase}` state: `{phase-state}` [`<--` if current task [`MISSMATCH` if branchMissMatch]]
+
+
+### 3.11 `task promote`
+
+```
+pnpm task promote [--confirm-rebase] [--json]
+```
+
+inspects the phase and status of the current branch, confirms the canonical branch is current,
+runs the `gate-check` for the phase and if `ready` promotes the task to the next phase.
+
+runs the same pipeline and acts on the result, **always**
+resolving `ready?` via `gate-check` where reached (it can't safely act
+without knowing):
+- `branchMismatch` → refuses to act on anything else below; reports the
+  mismatch (§3.4).
+- `awaiting-pr` → no action; re-reports the open PR (§3.4) — safe,
+  idempotent.
+- `ready` → performs the phase's mechanical action (branch fork, or PR
+  open via `lib/git.ts`/`lib/gh.ts`), per §3.7's table.
+- phase is `spec` but `test/{ref}` already exists (§3.5) → rebase +
+  force-push, gated on `--confirm-rebase` or an interactive prompt.
+- `spec/{ref}`/`task/{ref}` behind `main` (§3.5) → same rebase-forward
+  treatment, same confirmation gate.
+- `blocked` → no git/gh action; relays `gate-check`'s own `checks[]`.
+- `merged-pending-pull` (§3.3) → pulls `build/{ref}` locally; if
+  pre-existing build-phase commits need reordering onto the fresh merge
+  (§3.5's cascading case), rebases and force-pushes, gated on
+  `--confirm-rebase` or an interactive prompt — otherwise a plain,
+  unconfirmed pull.
+- `merged-pending-cleanup` (§3.3, §3.6) → performs final cleanup.
+
+### 3.12 `task wip`
+
+```
+pnpm task wip [title] [message] [--json]
+```
+
+commits work in progress on the current branch with the `WIP` marker using the optional `title` and
+`message`.
 
 Packs away in-progress work on the ref's current phase branch so it reads
 unambiguously as paused rather than abandoned mid-edit:
@@ -599,13 +775,32 @@ unambiguously as paused rather than abandoned mid-edit:
    literal substring `WIP` in the title is the recognised marker — see the
    WIP convention below), then push.
 
+*commit message*
+```
+${ref}: ${title} - WIP
+
+${message} | "work in progress"
+```
+
 **WIP marker convention:** a branch is considered `work-in-progress`
 (paused, not simply mid-edit and forgotten) when the literal substring
 `WIP` appears anywhere in HEAD's commit title — e.g. `AAA-000 WIP` is a
 valid marker. This is an exact string match, checked by `repo-state.ts` as
 part of phase-state derivation, not a prefix/suffix convention.
 
-### 3.9 Parked items (unchanged from prior revision)
+### 3.13 `task <ref>`
+
+```
+pnpm task <ref> [--wip [title] [message]] [--json]
+```
+
+switches to the canonical branch of the given `<ref>` (matches `[A-Z]+-[0-9]+`) optionally
+committing work in progress in its current location of carrying it forward to the new task.
+if `--wip [title] [message]` given
+  -> commit changes to a new commit using `title` and `message`
+checkout the canonical branch for the given task.
+
+### 3.14 Parked items
 
 - **Chunked specs** (`task-{ref}-00-spec.md`, `-01-spec.md`, ...) and how
   they interact with concurrent-branch state — acknowledged as relatively
@@ -630,6 +825,11 @@ part of phase-state derivation, not a prefix/suffix convention.
 ### 4.1 `cli.ts`
 Parses argv into a subcommand name + flags only; performs no branch/gate/
 git logic itself. Dispatches via `registry.ts`.
+captures results, catches errors.
+if `--json` flag given
+  -> creates `TaskPhasingResult` instance from `TaskPhasingCommandResult`
+else 
+  -> writes human output from `TaskPhasingCommandResult`
 
 ### 4.2 `types.ts`
 Defines `TaskRef`, `Phase`, `PhaseState`, `TaskState`, `TaskStatus`, and the
@@ -638,45 +838,16 @@ placeholder `GateCheckResult` (to be reconciled against
 
 ### 4.3 `registry.ts`
 Exports `commandRegistry: Record<string, CommandHandler>` mapping `init`,
-`status`, `list`, `promote`, `wip` to their handlers. Adding a command
+`status`, `list`, `promote`, `wip`, `ref` to their handlers. Adding a command
 means adding one file under `commands/` plus one entry here.
 
 ### 4.4 `commands/*.ts`
-- `status.ts` — runs the fetch → merge-status/open-PR/ancestry-derive
-  pipeline (§3.2–§3.3) and reports `TaskStatus` (including
-  `branchMismatch`, §3.4) without acting on it. Resolves `ready?` into
-  `ready`/`blocked` only when invoked with `--check` (§3.2); otherwise
-  reports `ready?` unresolved, since `gate-check` is slow and a plain
-  status read shouldn't pay that cost.
-- `list.ts` — the same pipeline across every ref with an active branch;
-  never resolves `ready?` (no `--check` equivalent — see the open
-  question in §3.9 on whether bulk resolution across many refs is worth
-  adding later).
-- `promote.ts` — runs the same pipeline and acts on the result, **always**
-  resolving `ready?` via `gate-check` where reached (it can't safely act
-  without knowing):
-  - `branchMismatch` → refuses to act on anything else below; reports the
-    mismatch (§3.4).
-  - `awaiting-pr` → no action; re-reports the open PR (§3.4) — safe,
-    idempotent.
-  - `ready` → performs the phase's mechanical action (branch fork, or PR
-    open via `lib/git.ts`/`lib/gh.ts`), per §3.7's table.
-  - phase is `spec` but `test/{ref}` already exists (§3.5) → rebase +
-    force-push, gated on `--confirm-rebase` or an interactive prompt.
-  - `spec/{ref}`/`task/{ref}` behind `main` (§3.5) → same rebase-forward
-    treatment, same confirmation gate.
-  - `blocked` → no git/gh action; relays `gate-check`'s own `checks[]`.
-  - `merged-pending-pull` (§3.3) → pulls `build/{ref}` locally; if
-    pre-existing build-phase commits need reordering onto the fresh merge
-    (§3.5's cascading case), rebases and force-pushes, gated on
-    `--confirm-rebase` or an interactive prompt — otherwise a plain,
-    unconfirmed pull.
-  - `merged-pending-cleanup` (§3.3, §3.6) → performs final cleanup.
-- `init.ts` — implements the existing-ref decision tree (doc exists? /
-  branch exists? / branch merged?) from the prior revision, using
-  `lib/task-doc.ts` and `lib/git.ts`. The "branch exists with unmerged
-  commits" cell remains a hard, unconditional block (§3.9).
-- `wip.ts` — implements §3.8.
+- `status.ts` — logic for the `status` command.
+- `list.ts` — logic for the `list` command.
+- `promote.ts` — logic for the `promote` command.
+- `init.ts` — logic for the `init` command.
+- `wip.ts` — logic for the `wip` command.
+- `ref.ts` - logic for the `ref` command.
 
 ### 4.5 `lib/repo-state.ts`
 Fetches `origin`; derives phase via `lib/gh.ts`'s merge-status and open-PR
@@ -690,19 +861,33 @@ state requiring gate-check resolution. Reports these states only — it
 never mutates local branches itself; that's `promote`'s job exclusively
 (§3.3, §4.4).
 
-### 4.6 `lib/gate-check.ts`
+### 4.6 `lib/task-doc.ts`
+Owns `task-{ref}.md` / `task-{ref}-NN-spec.md` scaffolding and the
+new-chunk `--spec` import path used by `init`. Detailed design parked
+(§3.9).
+
+### 4.7 `deps/gate-check.ts`
 Thin typed wrapper importing `@magpieweaver/gate-check` directly as a
 library dependency. Maps `Phase` to the correct exported check function for
 that phase's destination gate, per §3.7. Return-type mapping to be
 confirmed against the real package before implementation.
 
-### 4.7 `lib/git.ts`
+#### 4.7.1 Interface
+```typescript
+\\ TODO
+```
+
+### 4.8 `deps/git.ts`
 Branch create/checkout/push/rebase primitives. Used by `init` (branch
 creation), `promote`'s `ready` path (fork creation ahead of a PR), and
 `promote`'s rebase-forward path (§3.5). Never used to create ordinary work
 commits.
 
-### 4.8 `lib/gh.ts`
+```typescript
+\\TODO
+```
+
+### 4.9 `deps/gh.ts`
 Wraps `gh pr create` (opening destination-gate PRs) and `gh pr list
 --state merged`/`--state open` — the **sole** merge/PR-status detection
 mechanism in the tool, used for both `test/{ref}` → `build/{ref}` and the
@@ -710,7 +895,75 @@ final Main Gate transition (§3.3), deliberately never via SHA/ancestry
 comparison, since no GitHub merge method reliably preserves either. Never
 performs a merge itself.
 
-### 4.9 `lib/task-doc.ts`
-Owns `task-{ref}.md` / `task-{ref}-NN-spec.md` scaffolding and the
-new-chunk `--spec` import path used by `init`. Detailed design parked
-(§3.9).
+```typescript
+\\TODO
+```
+
+### 4.10 `deps/fs.ts`
+Wraps file system commands to support unit testing.
+
+```typescript
+\\TODO
+```
+
+---
+
+# Appendix
+
+### 3.1 Branch topology — fork model, not rename
+
+This is a deliberate reversal of an earlier draft of this design, which
+modelled spec→test as a rename. A rename destroys the earlier branch
+object, which is incompatible with amending an earlier phase and rolling
+the change forward (§3.4) — there would be nothing left to amend. "Only
+one branch per task" is therefore **not** a literal git constraint; it's a
+statement about what's authoritative for phase derivation (§3.2) — the
+furthest-forward branch reachable from the task's history, not a claim
+that earlier branches don't exist.
+
+### 3.3 Merge detection: always via `gh`, never via SHA/ancestry
+
+The assumption was dropped after checking GitHub's actual merge options:
+GitHub's PR merge UI/API offers three methods — merge commit, squash, and
+rebase — and **none of them is a true fast-forward that preserves the
+source branch's original commit objects.** "Rebase and merge" looks
+closest, but it replays commits onto the target as *new* commit objects
+(new SHAs, same tree content), so even it breaks an ancestry check against
+the original `test/{ref}` commits. Forcing a genuine FF-only merge is
+possible but only via third-party GitHub Actions or manual CLI
+intervention outside the merge button — not a native repo setting — which
+would make the gate's own reliability depend on whoever clicks the merge
+button also correctly using an unusual, unenforced workflow. That's a
+worse failure mode than the problem it would solve: a single ordinary
+merge-commit click would silently leave the phase-detection logic unable
+to see the merge at all, with no natural error surfaced — exactly the
+"needs retrospective branch/commit cleaning" scenario this design is meant
+to avoid causing.
+
+### 3.5.a Amending an earlier phase and rolling forward
+
+This is judged safe **specifically because** branch-lifecycle discipline
+is strict elsewhere in this design: `test/{ref}` can only ever have been
+created by `init`/`promote` itself, forked from `spec/{ref}` at some prior
+HEAD — so its existence in this state is proof it's a legitimate,
+rebase-able descendant, not an unrelated branch someone created by hand.
+`promote` still verifies this rather than assuming it blindly: before
+rebasing, it confirms `git merge-base <old-spec-HEAD> test/{ref}` actually
+resolves to a commit on `spec/{ref}`'s prior history, turning "this must be
+true given our discipline" into "this is confirmed true" before rewriting
+anything.
+
+### 3.5.b Amending an earlier phase and rolling forward
+
+This is judged **safe to attempt automatically** (once confirmed) at step
+4 specifically because of the strict, mutually exclusive file scoping
+between phases enforced by the gates themselves — the test phase touches
+only `/test`, the build phase touches only `/src` — so a genuine conflict
+during that rebase should essentially never occur if that discipline
+holds. (Any refinement to that file-scoping discipline — e.g. interface
+files needing special handling — is `gate-check`'s scope-rule concern, not
+something this document tracks.) On the rare case of an actual conflict
+during step 4's rebase, `promote` surfaces it directly rather than
+attempting to resolve it — the newly-merged, human-reviewed test content
+takes precedence, and the agent must adjust their build-phase WIP to
+match it, never the reverse.
