@@ -36,7 +36,7 @@ For a given task it:
    of `spec/{ref}` / `test/{ref}` / `build/{ref}` / `task/{ref}` exist,
    which destination-gate PRs `gh` confirms as merged, and — separately —
    whether an earlier phase has been amended since a later one forked
-   from it (§3.2–§3.4).
+   from it (§3.2–§3.5).
 3. Detects whether the relevant branch is paused (`WIP`) or mid-edit.
 4. Derives a `PhaseState`, invoking the corresponding check from
    `@magpieweaver/gate-check` (an in-repo library dependency, not a
@@ -60,10 +60,10 @@ packages/task-phases/
                           # through this so new commands don't touch cli.ts
   commands/
     init.ts               # pnpm task init <ref> [--quick] ...
-    status.ts             # pnpm task status [--ref <ref>]
+    status.ts             # pnpm task status [--ref <ref>] [--fix [branch]] ...
     list.ts               # pnpm task list
-    promote.ts            # pnpm task promote [--ref <ref>] [--confirm-rebase]
-    wip.ts                # pnpm task wip --ref <ref>
+    promote.ts            # pnpm task promote [--confirm-rebase]
+    wip.ts                # pnpm task wip [title] [message]
     task.ts               # pnpm task <ref> [--json]  
   lib/                    # reused logic across the commands
     repo-state.ts         # fetch + gh merge-status + ancestry staleness
@@ -236,7 +236,7 @@ export interface GateCheckResult {
 # CLI surface
 
 pnpm task init <ref> [--quick] [--title <title>] [--doc <path>] [--spec <path>...] [--wip [title] [message]] [--json]
-pnpm task status [--fix [branch]] [--wip [title] [message]] [--check] [--json]
+pnpm task status [--ref <ref>] [--fix [branch]] [--wip [title] [message]] [--check] [--json]
 pnpm task list [--json]
 pnpm task promote [--confirm-rebase] [--json]
 pnpm task wip [title] [message] [--json]
@@ -268,22 +268,36 @@ pnpm task <ref> [--wip [title] [message]] [--json]
 * `--wip [title] [message]` on `init`, `status` and `<ref>` commits changes to the current branch before
     switching branches. if `--wip` is not given then work in progress is left un-committed and the branch 
     switched underneath it, switching branches `status --fix` or `<ref>` without `--wip` fails on merge
-    conflicts.
+    conflicts. Exactly two optional positional arguments, both quoted strings (e.g.
+    `--wip "this is a title" "this is its description"`) — never flag-style. `title` takes
+    priority: given a single argument, it's treated as `title` with no `message`, not the
+    reverse. Both may be omitted (bare `--wip`, per §3.12's WIP convention still applies).
 * `--check` on`status` opts into running `gate-check` to resolve `ready?` (§3.2) — plain
     `status` and `list` never do, since it's slow; `promote` always does if it needs to, since it can't 
     safely act without knowing. 
+* `--ref <ref>` on `status` inspects a task other than the one on the currently checked-out branch,
+    without switching branches. Combining `--ref` with `--check` is only valid when `<ref>` is the
+    currently checked-out task — `gate-check` runs against the actual working tree, so resolving
+    `ready?` for a different task's `<ref>` would need that task's files checked out, which `--ref`
+    on its own does not do. `status --ref <other-ref> --check` fails with an explicit error rather
+    than silently running `gate-check` against the wrong task's files.
 * `--confirm-rebase` on promote allows headless rebase spec -> test or test -> build
 
 
 ## 3. Design Notes
 
-### 3.1 Branch topology — fork model, not rename
+### 3.1 Branch topology — a new branch per phase, not a rename
 
-`spec/{ref}`, `test/{ref}`, and `build/{ref}` are created as **forks**
-(each branching from its parent's HEAD at the point of promotion), not as
-successive renames of a single branch. All three (or, on the quick route,
-just `task/{ref}`) stay alive simultaneously for the life of the task.
-(Appendix - §3.1)
+Each phase transition creates its **own new branch**, branching off the
+branch immediately before it in the sequence: `spec/{ref}` branches off
+`main`, `test/{ref}` branches off `spec/{ref}`, and `build/{ref}` branches
+off `test/{ref}` — a straight chain, not a single branch being renamed as
+the task moves through phases. ("Fork" elsewhere in this document just
+means "a distinct new branch object with its own identity," not a
+GitHub-style repository fork — there's no forking across repositories
+involved, only ordinary same-repo branch creation off the preceding
+phase's branch.) All three (or, on the quick route, just `task/{ref}`)
+stay alive simultaneously for the life of the task. (Appendix - §3.1)
 
 Branches are deleted **only once**, together, when the task's Main Gate PR
 merges (§3.5) — never incrementally as each intermediate PR merges.
@@ -303,7 +317,7 @@ distinct kinds of check, deliberately kept separate:
   it?"** — a genuinely different question, entirely about the tool's own
   branches relative to each other, never about a GitHub-mediated merge.
   This one *is* answered with ancestry (`git merge-base --is-ancestor`),
-  per §3.4, because it's checking the tool's own fork relationships, not
+  per §3.5, because it's checking the tool's own fork relationships, not
   a PR's merge state.
 
 - **"Is a destination-gate PR currently open, awaiting human review?"** —
@@ -622,6 +636,16 @@ against an agent bypassing genuine human review of test-phase content by
 committing directly to a later-phase branch (§3.4); `task-phases` depends
 on this being configured correctly, and cannot itself enforce it.
 
+**Stitching this configuration into the actual repos (which already sit in
+the weaver-engineering org with some branch protection in place) and
+testing the result against real GitHub behaviour is a manual task, done
+outside this document and outside `task-phases`'s own build.** Some rework
+in `deps/git.ts`/`deps/gh.ts` once tested against the real, configured
+repos is expected and accepted — the interfaces in §4.8/§4.9 are a
+first-pass synthesis (as their own preambles already note), not a
+contract guaranteed to survive contact with the real branch-protection
+setup unchanged.
+
 **Additional required assertion, owned by `gate-check`'s `main-gate`
 implementation, not by `task-phases`:** `task-phases`'s own
 `branchMismatch` guard (§3.4) only protects an agent that actually invokes
@@ -660,7 +684,7 @@ pnpm task init <ref> [--quick] [--title <title>] [--doc <path>] [--spec <path>..
 implements the existing-ref decision tree (doc exists? /
 branch exists? / branch merged?) from the prior revision, using
 `lib/task-doc.ts` and `lib/git.ts`. The "branch exists with unmerged
-commits" call remains a hard, unconditional block (§3.9).
+commits" call remains a hard, unconditional block (§3.14).
 
 initialise the task `<ref>`. It creates the required task dir and documentation and copies 
 in the given specs. WIP can be commited in place or carried forward into the new task.
@@ -677,16 +701,35 @@ if `--wip [title] [message]` is given
   -> commit WIP on current branch (new commit can always be squashed later to open the gate)
      `title` and `message` if given are included in the commit.
 
+**`--doc`/`--spec` are helper conveniences, not core requirements.** Any
+deviation from the supported happy path (a given path doesn't exist, a
+doc already present when `--title` also given, a spec file collides with
+an existing name, etc.) is handled gracefully: warn the user and continue
+with `init` regardless, rather than aborting it. Since these flags exist
+purely to save a manual copy step, failing the whole command over a
+convenience-path problem would be a worse outcome than just warning and
+letting the architect sort the file out by hand afterward.
 
-### 3.9 `tssk status`
+**`.task-phases.json` bootstrapping is a manual, project-setup task, not
+something `init` performs.** If no config file is found walking up from
+cwd to the repo root, the same graceful-degradation rule above applies:
+warn, and continue using every documented default from §2's
+`TaskPhasesConfig` (docs at `docs/tasks/`, `task-${ref}` dir naming, and
+so on) rather than failing. Every field in `TaskPhasesConfig` already has
+a stated default for exactly this reason — a missing config file should
+never be a hard blocker to running `init`.
+
+### 3.9 `task status`
 
 ```
-pnpm task status [--fix [branch]] [--wip [title] [message]] [--check] [--json]
+pnpm task status [--ref <ref>] [--fix [branch]] [--wip [title] [message]] [--check] [--json]
 ```
 
-derive the status of the current task through inspection of the repos branches and commits
-it can automatically checkout the canonical branch and optionally commit WIP on its current branch
-or carry it forward onto the canonical branch.
+derive the status of the current task (or, with `--ref <ref>`, a different
+task, without switching branches) through inspection of the repo's
+branches and commits. Without `--ref`, it can automatically checkout the
+canonical branch and optionally commit WIP on its current branch or carry
+it forward onto the canonical branch.
 
 runs the fetch → merge-status/open-PR/ancestry-derive
 pipeline (§3.2–§3.3) and reports `TaskStatus` (including
@@ -694,6 +737,16 @@ pipeline (§3.2–§3.3) and reports `TaskStatus` (including
 `ready`/`blocked` only when invoked with `--check` (§3.2); otherwise
 reports `ready?` unresolved, since `gate-check` is slow and a plain
 status read shouldn't pay that cost.
+
+if `--ref <ref>` given
+  -> derive `TaskStatus` for `<ref>` instead of the task on the
+     currently checked-out branch; `--fix`/`--wip` are not applicable
+     in this mode (there is no "current branch" of `<ref>` to fix/carry
+     WIP on unless `<ref>` is also the checked-out task)
+  if `--check` also given and `<ref>` is not the currently checked-out
+     task's ref
+    -> fail: "--check requires <ref> to be the checked-out task;
+       gate-check runs against the working tree"
 
 if `--fix [branch]` given
   if branch miss match
@@ -812,13 +865,29 @@ checkout the canonical branch for the given task.
   ref.)
 - **Concurrency** — an `init` target whose branch has genuinely unmerged
   commits blocks outright, with no override flag, until this is designed.
-- **`lib/task-doc.ts`** — scaffolding/import behaviour confirmed valuable,
-  template format and prompt flow not yet specified.
+- **`lib/task-doc.ts` template format** — scaffolding/import *behaviour*
+  is now fully specified (§3.8: helper-only, graceful degradation on any
+  deviation from the happy path, same treatment for a missing
+  `.task-phases.json`) — what's still open is purely the template file's
+  own format/placeholder syntax.
 - **CLI surface stability** — expected to change as real pinch points
   surface in use; nothing above is being treated as locked.
 - **`list --check`** — whether bulk `ready?` resolution across every
   in-flight ref is worth adding (cost scales with number of active tasks,
   unlike `status --check`'s single-ref cost) — not decided either way.
+
+**Not parked — deliberately sequenced after this document, not a gap in
+it:**
+- **Example human-readable output per command** — being added directly to
+  this document.
+- **Test plan** — intentionally comes *after* this design is finalised,
+  as `task-*-spec.md` documents following `SPEC-TEMPLATE.md` (per-behaviour
+  `Given`/`When`/`Then` conditions, including required assertions on every
+  interaction with `ExternalTools`) — the same spec/test/build discipline
+  this tool exists to support, applied to building it. Not written here.
+- **GitHub Actions / branch-protection stitching and live testing** — done
+  manually, directly against the weaver-engineering org's repos (§3.7);
+  outside both this document and `task-phases`'s own build.
 
 ## 4. Component Details
 
@@ -833,8 +902,10 @@ else
 
 ### 4.2 `types.ts`
 Defines `TaskRef`, `Phase`, `PhaseState`, `TaskState`, `TaskStatus`, and the
-placeholder `GateCheckResult` (to be reconciled against
-`@magpieweaver/gate-check`'s real exported types before implementation).
+placeholder `GateCheckResult`. `@magpieweaver/gate-check` exists and is
+functioning in-repo already — this is a normal implementation-time
+integration step against a real, available package, not an open unknown
+blocking the design.
 
 ### 4.3 `registry.ts`
 Exports `commandRegistry: Record<string, CommandHandler>` mapping `init`,
@@ -847,7 +918,7 @@ means adding one file under `commands/` plus one entry here.
 - `promote.ts` — logic for the `promote` command.
 - `init.ts` — logic for the `init` command.
 - `wip.ts` — logic for the `wip` command.
-- `ref.ts` - logic for the `ref` command.
+- `task.ts` - logic for the `ref` command (i.e. `pnpm task <ref>`).
 
 ### 4.5 `lib/repo-state.ts`
 Fetches `origin`; derives phase via `lib/gh.ts`'s merge-status and open-PR
@@ -869,12 +940,51 @@ new-chunk `--spec` import path used by `init`. Detailed design parked
 ### 4.7 `deps/gate-check.ts`
 Thin typed wrapper importing `@magpieweaver/gate-check` directly as a
 library dependency. Maps `Phase` to the correct exported check function for
-that phase's destination gate, per §3.7. Return-type mapping to be
-confirmed against the real package before implementation.
+that phase's destination gate, per §3.7. `@magpieweaver/gate-check` is
+already in-repo and functioning, so reconciling the return-type mapping
+against it is ordinary implementation work, not a design dependency.
+
+> **Draft, pending confirmation.** The four interfaces in §4.7.1–§4.10
+> below are a first-pass synthesis of every git/GitHub/filesystem/gate-check
+> operation named or implied elsewhere in this document (§3.2–§3.14), not a
+> previously-agreed contract. Flagging explicitly so it isn't read as
+> settled.
 
 #### 4.7.1 Interface
 ```typescript
-\\ TODO
+// Concrete shape of `GateChecksTool` (§2's `ExternalTools.gateChecks`),
+// implemented by this file as a thin wrapper over `@magpieweaver/gate-check`.
+// Owns the Phase -> destination-gate mapping (§3.7) so no caller needs to
+// know it independently.
+
+type GateName = "test-gate" | "build-gate" | "main-gate";
+
+interface GateChecksTool {
+  /**
+   * Runs the destination gate check for `phase`'s next gate — spec ->
+   * test-gate, test -> build-gate, build/quick -> main-gate (§3.7) —
+   * against the current working tree, and returns the raw
+   * `GateCheckResult` unmodified. Callers relay `messages`/`violations`
+   * directly rather than reinterpreting them (§3.11: "blocked -> no
+   * git/gh action; relays gate-check's own checks[]").
+   *
+   * `args` MUST include `ref` (mirroring gate-check's own CLI convention,
+   * e.g. `pnpm gate-check build-gate --ref AAA-000 --json`) — deliberately
+   * not left for gate-check to infer from the current branch name, so
+   * gate-check stays decoupled from task-phases's specific naming scheme.
+   */
+  run(
+    phase: Phase,
+    args: Record<string, boolean | number | string | string[]>,
+  ): Promise<GateCheckResult>;
+
+  /** The destination gate `phase` resolves to, without running it —
+   * used for reporting (e.g. `status`'s `gate.name`, §2's `TaskStatus`).
+   * Pure lookup, no external dependency — the one method on this
+   * interface that isn't actually shimming anything, kept here only
+   * because it's colocated with the mapping `run()` already needs. */
+  gateFor(phase: Phase): GateName;
+}
 ```
 
 ### 4.8 `deps/git.ts`
@@ -883,8 +993,170 @@ creation), `promote`'s `ready` path (fork creation ahead of a PR), and
 `promote`'s rebase-forward path (§3.5). Never used to create ordinary work
 commits.
 
+**Commit-count precondition on every rebase-forward path.** Both `test/{ref}`
+(relative to `spec/{ref}`) and `build/{ref}` (relative to the prior merged
+test-squash) are expected to carry **exactly one** commit of their own —
+`build-gate`/`main-gate` enforce this retroactively, at PR-evaluation time,
+but nothing enforces it *at the moment `promote` attempts a rebase-forward*.
+An agent could in principle have stacked several `wip` commits without ever
+squashing. `rebase()` does not attempt to cleverly handle an arbitrary tree
+of commits — that's bad practice on the agent's part, and it's judged
+acceptable to fail cleanly rather than build machinery to cope with it. The
+precondition is checked against `upstream` (see below) before any rewrite
+is attempted, and reported as its own distinct outcome (`unexpected-commit-
+count`), not conflated with a genuine content conflict.
+
 ```typescript
-\\TODO
+// Concrete shape of `GitTool` (§2's `ExternalTools.git`), implemented by
+// this file. Every method operates on the local checkout unless noted.
+// Only `init`'s branch-creation path, `promote`'s `ready` action (fork
+// creation ahead of a PR), and `promote`'s rebase-forward path (§3.5) call
+// the mutating methods below — ordinary work commits are explicitly out
+// of scope for this tool (§1.1).
+
+type RebaseOutcome =
+  | { status: "ok" }
+  | { status: "conflict"; details: string }
+  | {
+      status: "unexpected-commit-count";
+      expected: 1;
+      actual: number;
+      details: string;
+    };
+
+interface GitTool {
+  /** `git fetch origin --prune` — always run first, before any phase/
+   * state derivation (§1.1). `--prune` matters once final cleanup (§3.6)
+   * starts deleting branches: without it, stale local remote-tracking
+   * refs (e.g. `origin/spec/{ref}` after that branch is gone) can linger
+   * and confuse `branchExists`. */
+  fetch(): Promise<void>;
+
+  /** `git branch --show-current` — the branch actually checked out
+   * locally right now (`currentBranch`, §2/§3.4). Returns `""` in
+   * detached HEAD; callers treat that as trivially mismatching any
+   * canonical branch rather than special-casing it. */
+  currentBranch(): Promise<string>;
+
+  /** Whether `branch` exists, locally and/or on `origin` (§3.2's
+   * phase-existence checks; §3.8's `init` decision tree).
+   * Local: `git show-ref --verify --quiet refs/heads/<branch>`.
+   * Remote: `git show-ref --verify --quiet refs/remotes/origin/<branch>`
+   * — checked against the local remote-tracking ref, relying on `fetch()`
+   * always having run first, rather than a `git ls-remote` network
+   * round-trip. */
+  branchExists(branch: string, opts?: { remote?: boolean }): Promise<boolean>;
+
+  /** `git rev-parse <ref>` — SHA of `ref`'s current HEAD. `ref` may be a
+   * local branch name or a remote-tracking ref (`origin/<branch>`); both
+   * forms are needed — `headRefOid` comparisons (§3.5) use the local
+   * form, `merged-pending-pull`'s local-vs-origin check (§3.3) needs
+   * both in the same call site. */
+  headSha(branch: string): Promise<string>;
+
+  /** `git merge-base <refA> <refB>` — the nearest common ancestor.
+   * Used by callers to derive the `upstream` argument for `rebase()`
+   * below: for the spec->test and main-drift cases, `upstream =
+   * mergeBase(spec/{ref}, test/{ref})` (or `mergeBase(main, branch)`)
+   * is exactly the right boundary, computed fresh each time rather than
+   * relying on any remembered fork-point — deliberately not reflog-based,
+   * since reflog isn't reliably present (e.g. a fresh clone in CI). */
+  mergeBase(refA: string, refB: string): Promise<string>;
+
+  /** `git rev-list --count <parentBranch>..<branch>` — commits unique to
+   * `branch` relative to `parentBranch`. Nonzero distinguishes
+   * `not-started` from `work-in-progress`/`ready?` (§2, §4.5); also the
+   * primitive `rebase()` uses internally for its commit-count
+   * precondition above. */
+  hasCommitsBeyond(branch: string, parentBranch: string): Promise<boolean>;
+
+  /** `git log -1 --format=%s <branch>` — HEAD's commit title, for the
+   * literal `WIP` substring check (§3.8's WIP marker convention). */
+  headCommitTitle(branch: string): Promise<string>;
+
+  /** `git status --porcelain` — nonempty output means dirty. Covers both
+   * staged and unstaged changes (§3.9's dirty-worktree detection; §3.12's
+   * "nothing to pack away" guard). Local-checkout-only by nature — only
+   * meaningful for whatever's currently checked out. */
+  isDirty(): Promise<boolean>;
+
+  /** `git merge-base --is-ancestor <ancestor> <descendant>` (§3.2's
+   * staleness checks; used internally by `rebase()`'s precondition, not
+   * just by callers directly). Exit code 1 is a legitimate `false`, not
+   * an error — the wrapper only throws on other exit codes (e.g.
+   * unknown ref). */
+  isAncestor(ancestor: string, descendant: string): Promise<boolean>;
+
+  /** `git checkout -b <newBranch> <fromRef>` — creates `newBranch` off
+   * `fromRef`'s current HEAD and checks it out. **Local only — does not
+   * push.** Callers (`init`, `promote`'s `ready` action) must follow up
+   * with an explicit `push()` to publish it; easy to miss since the
+   * docstring alone doesn't make this obvious. */
+  createBranch(newBranch: string, fromRef: string): Promise<void>;
+
+  /** `git checkout <branch>` — switches to an already-existing branch
+   * (§3.9's `--fix`; §3.13's `<ref>` switch). */
+  checkout(branch: string): Promise<void>;
+
+  /** `git add -A && git commit -m "<title>" -m "<message>"`, then
+   * `git rev-parse HEAD` for the returned SHA. Generic — has no
+   * WIP-specific knowledge itself; `wip.ts` (§3.12) builds the full
+   * `{ref}: {title} - WIP` formatted title/message *before* calling
+   * this. The sole commit-creation primitive; never used for ordinary
+   * work commits (§1.1). */
+  commitAll(title: string, message?: string): Promise<string>;
+
+  /** `git push origin <branch>`, or `git push origin <branch>
+   * --force-with-lease` when `opts.force` is set — safe specifically
+   * because `fetch()` always runs first (§1.1), keeping the local
+   * remote-tracking ref fresh enough for the lease check to mean
+   * something. Used after `commitAll` (§3.12) and after every rebase
+   * below (§3.5). */
+  push(branch: string, opts?: { force?: boolean }): Promise<void>;
+
+  /** The non-destructive half of `merged-pending-pull` (§3.3).
+   * If `branch` doesn't exist locally: `git branch <branch>
+   * origin/<branch>` (create only, no checkout — kept symmetric with the
+   * other single-purpose primitives here; callers use `checkout()`
+   * separately if they want to switch to it).
+   * If it does exist: first verify `git merge-base --is-ancestor
+   * <branch> origin/<branch>` — a genuine fast-forward must actually be
+   * possible — then `git branch -f <branch> origin/<branch>`. The
+   * verification matters: blindly forcing the ref without checking
+   * direction would silently discard a local-only commit if this were
+   * ever called on a branch that had diverged. */
+  pullFastForward(branch: string): Promise<void>;
+
+  /**
+   * Rebases `branch` onto `ontoRef` in place (no push) — the shared
+   * primitive behind every rebase-forward case in §3.5: `spec/{ref}`
+   * amended under an existing `test/{ref}`; `build/{ref}`'s pre-existing
+   * commits reordered onto a fresh test->build merge (step 4); and
+   * `spec/{ref}`/`task/{ref}` rebased onto a newer `main`.
+   *
+   * Internally: derives `upstream` per the caller's scenario —
+   * `mergeBase(spec/{ref}, test/{ref})` or `mergeBase(main, branch)` for
+   * the two linear cases; the **prior** (superseded) Build Gate PR's
+   * `mergeCommitOid` (via `GitHubTool.findMergedPRs`, not `headRefOid` —
+   * see §4.9) for the build-reorder case, since by that point `test/{ref}`
+   * already contains the *new* content and a plain merge-base against it
+   * wouldn't find the old boundary at all. Verifies `rev-list --count
+   * upstream..branch == 1` — if not, returns `unexpected-commit-count`
+   * without attempting any rewrite (see the note above this interface).
+   * If exactly 1, runs `git rebase --onto <ontoRef> <upstream> <branch>`
+   * and reports `conflict` or `ok`. Reports rather than resolves any
+   * conflict — per §3.5's appendix, newly-merged, human-reviewed content
+   * takes precedence and the agent must adjust their own WIP to match
+   * it, never the reverse.
+   */
+  rebase(branch: string, ontoRef: string): Promise<RebaseOutcome>;
+
+  /** `git branch -D <branch>` (tolerates "doesn't exist locally" as a
+   * no-op, not an error) + `git push origin --delete <branch>` — used
+   * only by final cleanup once the Main Gate PR merges (§3.6); never for
+   * any earlier transition. */
+  deleteBranch(branch: string): Promise<void>;
+}
 ```
 
 ### 4.9 `deps/gh.ts`
@@ -895,27 +1167,118 @@ final Main Gate transition (§3.3), deliberately never via SHA/ancestry
 comparison, since no GitHub merge method reliably preserves either. Never
 performs a merge itself.
 
+**A base/head pair can have more than one merged PR over a ref's
+lifetime.** This isn't an edge case to defend against — it's a designed
+use case: a second Build Gate PR (`test/{ref}` → `build/{ref}`) is exactly
+what's needed whenever tests need to change after the first one already
+merged (§3.5). `findMergedPRs` (plural) returns the full history for a
+base/head pair, sorted oldest-first, so callers can distinguish "the most
+recent merge" (ordinary merge-status detection, §3.2/§3.3) from "the merge
+immediately prior to the current one" (the old boundary `rebase()` needs
+for the build-reorder case, §4.8). `findMergedPR` (singular) remains as a
+convenience over it, returning only the most recent.
+
 ```typescript
-\\TODO
+// Concrete shape of `GitHubTool` (§2's `ExternalTools.github`), implemented
+// by this file as a thin wrapper over the `gh` CLI. This is the *sole*
+// merge/PR-status detection mechanism in the tool (§3.3) — deliberately
+// never via SHA/ancestry comparison, since no GitHub merge method reliably
+// preserves either.
+
+interface PullRequestSummary {
+  number: number;
+  url: string;
+}
+
+interface MergedPullRequestSummary extends PullRequestSummary {
+  mergedAt: string;    // ISO-8601
+  headRefOid: string;  // the head branch's SHA at the moment it was merged —
+                        // compared against the branch's *current* HEAD to
+                        // detect a superseded merge (§3.5, step 1)
+  mergeCommitOid: string; // the SHA of the commit actually created on the
+                        // BASE branch by the merge (distinct from
+                        // headRefOid — this is what build/{ref}'s history
+                        // actually contains). Needed as the old-boundary
+                        // reference for the build-reorder case (§4.8);
+                        // not meaningful for a plain fast-forward/squash
+                        // detection, only for locating where prior content
+                        // landed.
+}
+
+interface GitHubTool {
+  /** `gh pr create --base <base> --head <head> --title "<title>" --body
+   * "<body>"` — opens a destination-gate PR (§3.7). Note: `gh pr create`
+   * does not support `--json`; it prints the PR URL to stdout on success.
+   * Implementation parses the PR number out of that URL, or issues a
+   * follow-up `gh pr view <head> --json number,url` — either way, the
+   * caller only sees the resulting `PullRequestSummary`. Never merges. */
+  createPR(
+    base: string,
+    head: string,
+    opts: { title: string; body?: string },
+  ): Promise<PullRequestSummary>;
+
+  /** `gh pr list --base <base> --head <head> --state merged --json
+   * number,url,mergedAt,headRefOid,mergeCommit --limit 50`, sorted
+   * oldest-first by `mergedAt` (`mergeCommit.oid` mapped to
+   * `mergeCommitOid` above). Full merge history for this base/head pair
+   * — see the note above this interface for why more than one entry is
+   * an expected, designed-for case, not an edge case. */
+  findMergedPRs(base: string, head: string): Promise<MergedPullRequestSummary[]>;
+
+  /** Convenience over `findMergedPRs` — the most recent entry, or `null`
+   * if none. Used wherever only "has this merged (yet)" matters (§3.2/
+   * §3.3's ordinary merge-status derivation). */
+  findMergedPR(base: string, head: string): Promise<MergedPullRequestSummary | null>;
+
+  /** `gh pr list --base <base> --head <head> --state open --json
+   * number,url` — the currently open PR for this base/head pair, if any
+   * (§3.2, `awaiting-pr`); `null` if none. */
+  findOpenPR(base: string, head: string): Promise<PullRequestSummary | null>;
+}
 ```
 
 ### 4.10 `deps/fs.ts`
 Wraps file system commands to support unit testing.
 
 ```typescript
-\\TODO
+// Concrete shape of `FileSystemTool` (§2's `ExternalTools.fileSystem`),
+// implemented by this file. Used by `lib/task-doc.ts` (task-doc/spec
+// scaffolding, §4.6) and `init` (§3.8) — never by any git-mutating path.
+
+interface FileSystemTool {
+  /** Locates and parses the nearest `.task-phases.json` walking up from
+   * cwd to the repo root (§2's `TaskPhasesConfig`). */
+  loadConfig(): Promise<TaskPhasesConfig>;
+
+  exists(path: string): Promise<boolean>;
+  readFile(path: string): Promise<string>;
+  writeFile(path: string, content: string): Promise<void>;
+
+  /** Copies `src` to `dest`, creating parent directories as needed —
+   * backs `init`'s `--doc`/`--spec` copy steps (§3.8). */
+  copyFile(src: string, dest: string): Promise<void>;
+
+  /** Creates `path` (and parents) if it doesn't already exist — backs
+   * `init`'s "creates task dir if it does not exist" (§3.8). */
+  mkdir(path: string): Promise<void>;
+
+  /** Lists entries directly under `path` — used by `list.ts`/
+   * `task-doc.ts` to enumerate existing task dirs. */
+  readDir(path: string): Promise<string[]>;
+}
 ```
 
 ---
 
 # Appendix
 
-### 3.1 Branch topology — fork model, not rename
+### 3.1 Branch topology — a new branch per phase, not a rename
 
 This is a deliberate reversal of an earlier draft of this design, which
 modelled spec→test as a rename. A rename destroys the earlier branch
 object, which is incompatible with amending an earlier phase and rolling
-the change forward (§3.4) — there would be nothing left to amend. "Only
+the change forward (§3.5) — there would be nothing left to amend. "Only
 one branch per task" is therefore **not** a literal git constraint; it's a
 statement about what's authoritative for phase derivation (§3.2) — the
 furthest-forward branch reachable from the task's history, not a claim
@@ -951,7 +1314,9 @@ rebase-able descendant, not an unrelated branch someone created by hand.
 rebasing, it confirms `git merge-base <old-spec-HEAD> test/{ref}` actually
 resolves to a commit on `spec/{ref}`'s prior history, turning "this must be
 true given our discipline" into "this is confirmed true" before rewriting
-anything.
+anything. (This verification is now folded into `rebase()`'s own
+commit-count precondition, §4.8 — a count of exactly 1 relative to the
+derived `upstream` is what makes "confirmed true" concrete.)
 
 ### 3.5.b Amending an earlier phase and rolling forward
 
