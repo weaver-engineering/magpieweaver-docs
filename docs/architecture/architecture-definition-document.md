@@ -571,10 +571,16 @@ The repositories maintained by the Magpie Weaver project are:
 >                    |                                   |                                                              |
 >              commit (specification-commit)             |                                                              |
 >                    |                                   |                                                              |
->              branch -> (test/{ref}) -----------------------------> test/{ref} - main[HEAD] & specification-commit     |
+               *---automatic---+                         |                                                              |
+               | Test Gate     |                         |                                                              |           
+               | create branch |                         |                                                              | 
+               +---------------+                         |                                                              |
                      |                                   |                                                              |
 > Test Phase (agent) |                                   |                                                              |
 > ================== |                                   |                                                              |
+               checkout (test/{ref})                     |                                                              |
+>                    |                                   |                                                              |
+>              branch -> (test/{ref})                    |                                                              |
 >                    |                                   |                                                              |
 >              code failing tests                        |                                                              |
 >                    |                                   |                                                              |
@@ -582,7 +588,7 @@ The repositories maintained by the Magpie Weaver project are:
 >                    |                                   |           +---manual---+                                     |
 >              raise PR (build/{ref}) -----------------------------> | Build Gate |                                     |
                                                          |           |   merge    |                                     |
-> Build Phase                                            |           +----------_-+                                     |
+> Build Phase                                            |           +------------+                                     |
 > ===========                                            |                 |                                            |
 > ( Start ) -> pull (build/{ref}) <---------------------------------- build/{ref} - main[HEAD] & specification-commit   |
 >                  |                                     |                           & test-commit                      |
@@ -592,7 +598,7 @@ The repositories maintained by the Magpie Weaver project are:
 >                  |                                     |                                                              |
 >             [ Deploy Dev ] ------------------------------------------------------------+                              |           
 >                  |                                     |                               |                              |
->              raise PR (uat/{ref}) ---------------------------------------+             |                              |  
+>              raise PR (main) --------------------------------------------+             |                              |  
 >                                                        |                 |             |                              |
                                                          |                 |             |                              |
 > Manual Task                                            |                 |             |                              |
@@ -608,32 +614,40 @@ The repositories maintained by the Magpie Weaver project are:
 >            [ Deploy Dev ] -------------------------------------------------------------+--------------------------------> Deployed task {ref}
 >                 |                                      |                 |                                            |
 >                 |                                      |           +---manual---+                                     |
->              raise PR (uat) -------------------------------------> | Test Gate  |                                     |  
->                                                        |           |   merge    |                                     |
-                                                         |           +------------+                                     |                                                         
-> User Acceptance Test Phase                             |                 |                                            |
-> ==========================                             |                 |    main[HEAD] & (specification-commit      |
->                                                        |                uat - & test-commit                           |    
->                                                        |                 |    & build-commit) OR task-commit          |
->                                                        |                 |                                            |
->                                                        |            +------automatic--------+                         |
->                                                        |            | Deploy Test Action    |                         |    Test Environment
->                                                        |            | squash commits        |                         |    ================
+>              raise PR (main) ------------------------------------> | Main Gate  |                                     | 
+                                                         |           |   squash   |                                     |
+                                                         |           |    merge   |                                     |
+                                                         |           +------------+                                     |
+                                                         |                 |    -----------squashed---------------      | 
+                                                         |                 |    main[HEAD] & (specification-commit      |
+                                                         |               main - & test-commit                           |                                                            
+                                                         |                 |    & build-commit) OR task-commit          |
+                                                         |                 |                                            |
+                                                         |           +-automatic-+
+                                                         |           |  push uat |
+                                                         |           +-----------+
+                                                         |                 |
+                                                         |                uat   
+                                                         |                 |                                            |
+> User Acceptance Test Phase                             |            +------automatic--------+                         |    Test Environment
+> ==========================                             |            | Deploy Test Action    |                         |    ================
 >                                                        |            | Deploy Test           | ---------------------------> Deployed task {ref}
->                                                        |            | raise PR (main)       |                         |
+>                                                        |            | raise PR (prod)       |                         |
 >                                                        |            +-----------------------+                         |
                                                          |                 |                                            |
-                                                         |            +------manual---------+                           |    
-> Deployment Phase                                       |            | Main Gate           |                           |
-> ================                                       |            | merge               |                           |
+> Deployment Phase                                       |            +------manual---------+                           |    
+> ================                                       |            | Prod Gate           |                           |
+>                                                        |            | merge               |                           |
 >                                                        |            +---------------------+                           |
 >                                                        |                 |                                            |
+>                                                        |               prod
+>                                                        |                 |
 >                                                        |            +-----automatic-------+                           |    Production Environment
 >                                                        |            | Deploy Prod Action  |                           |    ======================
 >                                                        |            | Deploy Production   |------------------------------> Deployed task {ref}
 >                                                        |            +---------------------+                           |
                                                          |                 |                                            |
-(Done) <------------------------------------------------------------- main [task-commit -> HEAD]                        |                                                                                           
+(Done) <-------------------------------------------------------------------+                                            |                                                                                           
                                                          |                                                              |
 ```
 **Branches**
@@ -679,6 +693,17 @@ The repositories maintained by the Magpie Weaver project are:
 
 **Gates And Actions**
 
+- ***Test Gate***
+  - Creates a branch from `spec/{ref}` to `test/{ref}`
+  - Validates
+    - Changes from `spec/{ref}`
+      - Commit messages starts with `{ref}`
+      - Commit message includes a description.
+      - Changes are **ONLY** in `/docs/tasks/task-{ref}`
+      - `/docs/tasks/task-{ref}/task-{ref}.md` exists.
+      - `/docs/tasks/task-{ref}/task-{ref}-spec.md` exists.
+  - Requires human override of failing validation
+
 - ***Build Gate***
   - Is a PR from `test/{ref}` to `origin/build/{ref}`.
   - `{ref}` conforms to the regex `[A-Z]+-[0-9]+`
@@ -701,8 +726,8 @@ The repositories maintained by the Magpie Weaver project are:
     - At least 1 new test fails.
   - Requires human override of failing validation.
 
-- ***Test Gate***
-  - Is a PR from `build/{ref}` or `task/{ref}` to `origin/uat`
+- ***Main Gate***
+  - Is a PR from `build/{ref}` or `task/{ref}` to `main`
   - Requires human approval to proceed
   - Validates
     - Changes from `build/{ref}`
@@ -731,15 +756,15 @@ The repositories maintained by the Magpie Weaver project are:
     - 85% Code coverage
     - 95% New code coverage
   - Requires human override of failing validation
+  - Squashes to 1 commit, concatenating the commit messages (spec + test + build)
 
 - ***Deploy Test Action***
   - Triggered on merge to `uat`
-  - Squashes to 1 commit, concatenating the commit messages (spec + test + build)
   - Deploys the test environment
   - Raises a PR to `main`
 
-- ***Main Gate***
-  - Is a PR from `uat` to `origin/main`
+- ***Prod Gate***
+  - Is a PR from `uat` to `prod`
   - Requires human approval to proceed.
   - Validates
     - 1 inbound commit
@@ -749,7 +774,7 @@ The repositories maintained by the Magpie Weaver project are:
     - All tests pass
 
 - ***Deploy Prod Action***
-  - Triggered on merge to `main`
+  - Triggered on merge to `prod`
   - Deploys the production environment
 
 **The Document Repository**

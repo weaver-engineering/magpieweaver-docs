@@ -235,7 +235,7 @@ export interface GateCheckResult {
 ```
 # CLI surface
 
-pnpm task init <ref> [--quick] [--title <title>] [--doc <path>] [--spec <path>...] [--wip [title] [message]] [--json]
+pnpm task init <ref> [--quick] [--title <title>] [--doc <path>] [--specs <path>...] [--wip [title] [message]] [--json]
 pnpm task status [--ref <ref>] [--fix [branch]] [--wip [title] [message]] [--check] [--json]
 pnpm task list [--json]
 pnpm task promote [--confirm-rebase] [--json]
@@ -262,7 +262,7 @@ pnpm task <ref> [--wip [title] [message]] [--json]
 * `--quick` on `init` initialises a quick task (checks out `task/<ref?`)
 * `--title <title>` on `init` sets the title of the task doc.
 * `--doc <path>` on `init` copies the <path> to the task doc.
-* `--spec <path>...` on `init` copies the paths to spec docs for the task.
+* `--specs <path>...` on `init` copies the paths to spec docs for the task.
 * `--fix [branch]` on `status` sets the current branch to the canonical branch (`branch`)
     is an optional key work supporting other auto fixes in the future).
 * `--wip [title] [message]` on `init`, `status` and `<ref>` commits changes to the current branch before
@@ -335,11 +335,13 @@ distinct kinds of check, deliberately kept separate:
 ```
 git fetch origin   // always, before deriving anything
 
-if gh reports a MERGED PR: (build/{ref} or task/{ref}) -> main
+if gh reports a MERGED PR: (build/{ref} or task/{ref}) -> main 
+     AND change not in main
      -> phase = build (or quick); state = merged-pending-cleanup (3.3, 3.6)
 else if gh reports an OPEN PR: (build/{ref} or task/{ref}) -> main
      -> phase = build (or quick); state = awaiting-pr
 else if gh reports a MERGED PR: test/{ref} -> build/{ref}
+        AND change not in main
         AND test/{ref}'s current HEAD == that PR's recorded headRefOid
      -> phase = build
         if local build/{ref} doesn't exist, or its HEAD != origin/build/{ref}
@@ -678,7 +680,7 @@ scopes.
 ### 3.8 `task init`
 
 ```
-pnpm task init <ref> [--quick] [--title <title>] [--doc <path>] [--spec <path>...] [--wip [title] [message]] [--json]
+pnpm task init <ref> [--quick] [--title <title>] [--doc <path>] [--specs <path>...] [--wip [title] [message]] [--json]
 ```
 
 implements the existing-ref decision tree (doc exists? /
@@ -688,7 +690,7 @@ commits" call remains a hard, unconditional block (§3.14).
 
 initialise the task `<ref>`. It creates the required task dir and documentation and copies 
 in the given specs. WIP can be commited in place or carried forward into the new task.
-on of `title` or `doc` is required.
+one of `title` or `doc` is required.
 creates task dir if it does not exist.
 if `--doc <path>` given and task doc does not exist
   -> copy path to task dir as task doc
@@ -718,6 +720,136 @@ warn, and continue using every documented default from §2's
 so on) rather than failing. Every field in `TaskPhasesConfig` already has
 a stated default for exactly this reason — a missing config file should
 never be a hard blocker to running `init`.
+
+#### 3.8.1 Human Readable Output
+
+Create a new task AAA-001 from main with spec and no work in progress
+
+```bash
+/data/workspaces/magpie-weaver$ pnpm task init AAA-001 \
+--title "Do a thing" \
+--specs ../magpieweaver-docs/docs/setup/dev-env/task-phasing/spec-1-scaffolding.md
+Current branch `main` - ref: -
+------------------------------
+Initial Task State
+Task::Phase::State -::-::not-initialised
+----------------------------------------
+
+Initialising new task: 'AAA-001' Do a thing...
+ - Check for WIP - OK.
+ - Check `main` is up to date with `origin` - OK.
+ - Check Branch `spec/AAA-001` is available - does not exist - OK.
+ - Create branch `spec/AAA-001` - OK.
+ - Initialising task documentation: `docs/tasks/AAA-001`...
+   - Create task directory `docs/tasks/AAA-001` - OK.
+   - Create `task-AAA-001.md` from template, title: "Do a thing" - OK.
+   - Copying specs...
+     - ../magpieweaver-docs/docs/setup/dev-env/task-phasing/spec-1-scaffolding.md -> `task-AAA-001-01-spec.md`
+   - Copying specs - OK.
+ - Initialising task documentation: `docs/tasks/AAA-001` - OK.
+New task `AAA-001` Do a thing initialised - OK.
+
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State AAA-001::spec::work-in-progress
+--------------------------------------------------
+data/workspaces/magpie-weaver$
+```
+Create a new task AAA-002 from main with no spec
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task init AAA-002 \
+--title "Do a thing without specs"
+Current branch `main` - ref: -
+------------------------------
+Initial Task State
+Task::Phase::State -::-::not-initialised
+----------------------------------------
+
+Initialising new task: 'AAA-002' Do a thing without specs...
+ - Check for WIP - OK.
+ - Check `main` is up to date with `origin` - OK.
+ - Check Branch `spec/AAA-001` is available - does not exist - OK.
+ - Create branch `spec/AAA-001` - OK.
+ - Initialising task documentation: `docs/tasks/AAA-002`...
+   - Create task directory `docs/tasks/AAA-002` - OK.
+   - Create `task-AAA-002.md` from template, title: "Do a thing without specs" - OK.
+   - Copying specs... 
+   - Spec copied - OK
+ - Initialising task documentation: `docs/tasks/AAA-002` - OK.
+Initialising new task: 'AAA-002' Do a thing without specs - OK.
+
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State AAA-001::spec::work-in-progress
+--------------------------------------------------
+data/workspaces/magpie-weaver$
+```
+
+Create a new task AAA-003 from main with work in progress
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task init AAA-003 \
+--title "Do a thing" \
+--specs ../magpieweaver-docs/docs/setup/dev-env/task-phasing/spec-1-scaffolding.md
+Current branch `build/ABC-123` - ref: `ABC-123`
+----------------------------------------------
+Initial Task State
+Task::Phase::State ABC-123::build::work-in-progress
+---------------------------------------------------
+
+Initialising new task: 'AAA-003' Do a thing...
+ - Check for WIP - changed found.
+ - No WIP instrution - FAIL!
+Initialising new task: 'AAA-003' Do a thing - FAIL!.
+
+Exit Code: 1 - FAILED!
+Current Task State
+Task::Phase::State ABC-123::build::work-in-progress
+---------------------------------------------------
+data/workspaces/magpie-weaver$
+```
+
+Create a new task AAA-003 from main handling work in progress
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task init AAA-000 \
+--wip "A PoC" "No longer required" \
+--doc ../magpieweaver-docs/docs/setup/dev-env/task-phasing/AAA-000-tasknote.md \
+--specs ../magpieweaver-docs/docs/setup/dev-env/task-phasing/spec-1-scaffolding.md 
+Current branch `build/ABC-123` - ref: `ABC-123`
+----------------------------------------------
+Initial Task State
+Task::Phase::State ABC-123::build::work-in-progress
+---------------------------------------------------
+
+Initialising new task: 'AAA-003' Do a thing...
+ - Check for WIP - changed found.
+ - Handling WIP...
+   - Commit ABC-123: A PoC - WIP
+   -
+   - No longer required
+   - ---
+ - Handling WIP - OK.
+ - Check `main` is up to date with `origin` - OK.
+ - Check Branch `spec/AAA-001` is available - does not exist - OK.
+ - Create branch `spec/AAA-001` - OK.
+ - Initialising task documentation: `docs/tasks/AAA-001`...
+   - Create task directory `docs/tasks/AAA-001` - OK.
+   - Create `task-AAA-001.md` from template, title: "Do a thing" - OK.
+   - Copying specs...
+     - ../magpieweaver-docs/docs/setup/dev-env/task-phasing/spec-1-scaffolding.md -> `task-AAA-001-01-spec.md`
+   - Copying specs - OK.
+ - Initialising task documentation: `docs/tasks/AAA-001` - OK.
+New task `AAA-001` Do a thing initialised - OK.
+
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State AAA-001::spec::work-in-progress
+--------------------------------------------------
+data/workspaces/magpie-weaver$
+```
+
 
 ### 3.9 `task status`
 
@@ -758,6 +890,157 @@ if `--check` and derived status is `ready?`
   -> run the `gate-check` for the phase.
   -> update phase status (ready | blocked)
 
+#### 3.9.1 Human Readable Output
+
+Get the status of the current task and resolving the `ready?` status
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task status --check
+Current branch `test/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Evaluating phase of `AAA-123`...
+   - No merged PR (build/AAA-123 or task/AAA-123) -> main
+   - No open PR (build/AAA-123 or task/AAA-123) -> main
+   - No merged PR test/AAA-123 -> build/AAA-123
+   - No open PR test/AAA-123 -> build/AAA-123
+   - Branch `test/AAA-123` exists
+ - Phase of `AAA-123` is `test`
+ - Evaluating status of task `AAA-123` in phase `test`...
+   - Branch `spec/AAA-123` is ancestor of `test/AAA-123` => not-stale
+   - No work in progress
+   - Commit detected
+   - Commit is not WIP
+ - Status of task `AAA-123` in phase `test` is `ready?`
+ - Resolving `ready?` status of task `AAA-123`...
+   - Running gate-check `build-gate`...
+     - validating spec commit
+     - task director exists
+     - task doc exists
+     - ...
+   - `build-gate` check passed
+ - Status of task `AAA-123` in phase `test` is `ready`.   
+
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State AAA-123::test::ready
+---------------------------------------
+data/workspaces/magpie-weaver$
+```
+
+Get the status of the current task without resolving the `ready?`
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task status
+Current branch `test/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Evaluating phase of `AAA-123`...
+   - No merged PR (build/AAA-123 or task/AAA-123) -> main
+   - No open PR (build/AAA-123 or task/AAA-123) -> main
+   - No merged PR test/AAA-123 -> build/AAA-123
+   - No open PR test/AAA-123 -> build/AAA-123
+   - Branch `test/AAA-123` exists
+ - Phase of `AAA-123` is `test`
+ - Evaluating status of task `AAA-123` in phase `test`...
+   - Branch `spec/AAA-123` is ancestor of `test/AAA-123` => not-stale
+   - No work in progress
+   - Commit detected
+   - Commit is not WIP
+ - Status of task `AAA-123` in phase `test` is `ready?`
+ - Ready? status not resolved, `--check` flag not set. 
+
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State AAA-123::test::ready?
+----------------------------------------
+data/workspaces/magpie-weaver$
+```
+
+Get the status of another task
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task status --ref ABC-789
+Current branch `test/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Given ref: `ABC-789`
+ - Evaluating phase of `ABC-789`...
+   - No merged PR (build/ABC-789 or task/ABC-789) -> main
+   - No open PR (build/AABC-789 or task/ABC-789) -> main
+   - No merged PR test/ABC-789 -> build/ABC-789
+   - Open PR test/ABC-789 -> build/ABC-789
+ - Phase of `ABC-789` is `test`
+ - Status of `ABC-789` in phase `test` is `awaiting-pr`
+
+Exit Code: 0 - SUCCESS
+Task ABC-789 State
+Task::Phase::State ABC-789::test::awaiting-pr
+---------------------------------------------
+data/workspaces/magpie-weaver$
+```
+
+Get the status of another task and resolve the ready? status
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task status --ref ABC-789 --check
+Current branch `test/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Given ref: `ABC-789`
+ - Evaluating phase of `ABC-789`...
+   - No merged PR (build/ABC-789 or task/ABC-789) -> main
+   - No open PR (build/ABC-789 or task/ABC-789) -> main
+   - No merged PR test/ABC-789 -> build/ABC-789
+   - No open PR test/ABC-789 -> build/ABC-789
+   - Branch `test/ABC-789` exists
+ - Phase of `ABC-789` is `test`
+ - Evaluating status of task `ABC-789` in phase `test`...
+   - Branch `spec/ABC-789` is ancestor of `test/ABC-789` => not-stale
+   - No work in progress
+   - Commit detected
+   - Commit is not WIP
+ - Status of task `ABC-789` in phase `test` is `ready?`
+ - `ABC-123` is not the current task. Unable to resolve `ready?`
+
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State AAA-123::test::ready?
+----------------------------------------
+data/workspaces/magpie-weaver$
+```
+
+Get the status of the current task when there is a branch mismatch
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task status 
+data/workspaces/magpie-weaver$ pnpm task status
+Current branch `test/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Evaluating task phase of `AAA-123`...
+   - No merged PR (build/AAA-123 or task/AAA-123) -> main
+   - No open PR (build/AAA-123 or task/AAA-123) -> main
+   - No merged PR test/AAA-123 -> build/AAA-123
+   - No open PR test/AAA-123 -> build/AAA-123
+   - Branch `test/AAA-123` exists
+ - Phase of `AAA-123` is `test`
+ - Evaluating status of task `AAA-123` in phase `test`...
+   - Branch `spec/AAA-123` is ancestor of `test/AAA-123` => not-stale
+   - No work in progress
+   - Commit detected
+   - Commit is not WIP
+ - Status of task `AAA-123` in phase `test` is `ready?`
+ - Ready? status not resolved, `--check` flag not set. 
+
+Exit Code: 0 - SUCCESS
+Current Task State
+\\\\\\ CAUTION BRANCH MISMATCH current branch should be `test/AAA-123` //////
+Task::Phase::State AAA-123::test::ready?
+----------------------------------------
+data/workspaces/magpie-weaver$
+```
+
 ### 3.10 `task list`
 
 ```
@@ -777,6 +1060,24 @@ group by `{ref}`
 For each `{ref}` output
 - `{ref}` phase: `{phase}` state: `{phase-state}` [`<--` if current task [`MISSMATCH` if branchMissMatch]]
 
+
+#### 3.10.1 Human Readable Output
+```bash
+data/workspaces/magpie-weaver$ pnpm task status --ref ABC-789
+Current branch `test/ABC-789` - ref: `ABC-789`
+----------------------------------------------
+Listing the status of all current tasks...
+ - task: `AAA-001` phase: `build` status: `work-in-progress`
+ - task: `ABC-123` phase: `spec`  status: `ready?`
+ - task: `ABC-789` phase: `test`  status: `awaiting-pr` <== Current Task
+ - task: `BBB-001` phase: `build` status: `ready?`
+
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State ABC-789::test::awaiting-pr
+----------------------------------------------
+data/workspaces/magpie-weaver$
+```
 
 ### 3.11 `task promote`
 
@@ -807,6 +1108,256 @@ without knowing):
   `--confirm-rebase` or an interactive prompt — otherwise a plain,
   unconfirmed pull.
 - `merged-pending-cleanup` (§3.3, §3.6) → performs final cleanup.
+
+#### 3.11.1 Human Readable Output
+
+Promote a task from spec::ready
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task promote
+Current branch `spec/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Evaluating phase of `AAA-123`...
+   - No merged PR (build/AAA-123 or task/AAA-123) -> main
+   - No open PR (build/AAA-123 or task/AAA-123) -> main
+   - No merged PR test/AAA-123 -> build/AAA-123
+   - No open PR test/AAA-123 -> build/AAA-123
+   - No branch `test/AAA-123` exists
+   - Branch `spec/AAA-123` exists
+ - Phase of `AAA-123` is `spec`
+ - Evaluating status of task `AAA-123` in phase `spec`...
+   - Branch `main` is ancestor of `spec/AAA-123` => not-stale
+   - No work in progress
+   - Commit detected
+   - Commit is not WIP
+ - Status of task `AAA-123` in phase `spec` is `ready?`
+ - Resolving `ready?` status of task `AAA-123`...
+   - Running gate-check `test-gate`...
+     - validating spec commit
+     - task director exists
+     - task doc exists
+     - ...
+   - `test-gate` check passed
+ - Status of task `AAA-123` in phase `spec` is `ready`.  
+ 
+Promoting AAA-123::spec::ready...
+  - Create and checkout new branch `test/AAA-123` from `spec/AAA-123` - OK.
+  
+Evaluating task status...
+ - Evaluating phase of `AAA-123`...
+   - No merged PR (build/AAA-123 or task/AAA-123) -> main
+   - No open PR (build/AAA-123 or task/AAA-123) -> main
+   - No merged PR test/AAA-123 -> build/AAA-123
+   - No open PR test/AAA-123 -> build/AAA-123
+   - Branch `test/AAA-123` exists
+ - Phase of `AAA-123` is `test`
+ - Evaluating status of task `AAA-123` in phase `test`...
+   - Branch `spec/AAA-123` is ancestor of `test/AAA-123` => not-stale
+   - No work in progress
+   - No commit
+ - Status of task `AAA-123` in phase `test` is `not-started`
+
+Current branch `test/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State AAA-123::test::not-started
+---------------------------------------------
+data/workspaces/magpie-weaver$
+```
+
+Promote a task from test::ready
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task promote
+Current branch `test/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Evaluating phase of `AAA-123`...
+   - No merged PR (build/AAA-123 or task/AAA-123) -> main
+   - No open PR (build/AAA-123 or task/AAA-123) -> main
+   - No merged PR test/AAA-123 -> build/AAA-123
+   - No open PR test/AAA-123 -> build/AAA-123
+   - Branch `test/AAA-123` exists
+ - Phase of `AAA-123` is `test`
+ - Evaluating status of task `AAA-123` in phase `test`...
+   - Branch `spec/AAA-123` is ancestor of `test/AAA-123` => not-stale
+   - No work in progress
+   - Commit detected
+   - Commit is not WIP
+ - Status of task `AAA-123` in phase `test` is `ready?`
+ - Resolving `ready?` status of task `AAA-123`...
+   - Running gate-check `build-gate`...
+     - validating spec commit
+     - task director exists
+     - task doc exists
+     - ...
+   - `build-gate` check passed
+ - Status of task `AAA-123` in phase `test` is `ready`.  
+ 
+Promoting AAA-123::test::ready... 
+  - Raising PR `test/AAA-123` -> `origin/build/AAA-123` - "Failing tests for AAA-123"...
+    - Raise PR - PR #46 raised - OK
+  - Build Gate PR raised for task `AAA/123` - OK
+  
+Evaluating task status...
+ - Evaluating phase of `AAA-123`...
+   - No merged PR (build/AAA-123 or task/AAA-123) -> main
+   - No open PR (build/AAA-123 or task/AAA-123) -> main
+   - No merged PR test/AAA-123 -> build/AAA-123
+   - Open PR test/AAA-123 -> build/AAA-123
+ - Phase of `AAA-123` is `test`
+ - Status of task `AAA-123` in phase `test` is `awaiting-pr`
+
+Current branch `test/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State AAA-123::test::awaiting-pr
+---------------------------------------------
+data/workspaces/magpie-weaver$
+```
+
+Promote a task from build::merged-pending-pull
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task promote
+Current branch `build/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Evaluating phase of `AAA-123`...
+   - No merged PR (build/AAA-123 or task/AAA-123) -> main
+   - No open PR (build/AAA-123 or task/AAA-123) -> main
+   - Merged PR test/AAA-123 -> build/AAA-123 exists and test/AAA-123 not mutated from PR
+ - Phase of `AAA-123` is `build`
+ - Evaluating status of task `AAA-123` in phase `build`...
+   - Branch `build/AAA-123` does not exist
+ - Status of task `AAA-123` in phase `build` is `merged-pending-pull`
+ 
+Promoting AAA-123::build::merged-pending-pull... 
+  - Pull changes from `origin/build/AAA-123` -> `build/AAA-123` - OK.
+  
+Evaluating task status...
+ - Evaluating phase of `AAA-123`...
+   - No merged PR (build/AAA-123 or task/AAA-123) -> main
+   - No open PR (build/AAA-123 or task/AAA-123) -> main
+   - Merged PR test/AAA-123 -> build/AAA-123 exists and test/AAA-123 not mutated from PR
+ - Phase of `AAA-123` is `build`
+ - Evaluating status of task `AAA-123` in phase `build`...
+   - Branch `build/AAA-123` exist
+   - No work in progress
+   - No commit detected
+ - Status of task `AAA-123` in phase `build` is `not-started`
+
+Current branch `build/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State AAA-123::build::not-started
+----------------------------------------------
+data/workspaces/magpie-weaver$
+```
+
+Promote a task from build::ready
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task promote
+Current branch `build/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Evaluating phase of `AAA-123`...
+   - No merged PR (build/AAA-123 or task/AAA-123) -> main
+   - No open PR (build/AAA-123 or task/AAA-123) -> main
+   - Merged PR test/AAA-123 -> build/AAA-123 exists and test/AAA-123 not mutated from PR
+ - Phase of `AAA-123` is `build`
+ - Evaluating status of task `AAA-123` in phase `build`...
+   - Branch `build/AAA-123` exist
+   - Branch `origin/build/AAA-123` is ancestor of `build/AAA-123`
+   - No work in progress
+   - Commit detected
+   - Commit is not WIP
+ - Status of task `AAA-123` in phase `build` is `ready?`
+ - Resolving `ready?` status of task `AAA-123` in phase `build`...
+   - Running gate-check `main-gate`...
+     - validating spec commit
+     - task director exists
+     - task doc exists
+     - ...
+   - `main-gate` check passed
+ - Status of task `AAA-123` in phase `build` is `ready`.  
+ 
+Promoting AAA-123::build::ready... 
+  - Push `build/AAA-123` -> `origin/main/AAA-123`
+  - Raising PR `origin/main/AAA-123` -> `origin/main` - "Implementation of AAA-123"...
+    - Raise PR - PR #46 raised - OK
+  - Main Gate PR raised for task `AAA/123` - OK
+  
+Evaluating task status...
+ - Evaluating phase of `AAA-123`...
+   - No merged PR (build/AAA-123 or task/AAA-123) -> main
+   - Open PR build/AAA-123 -> main
+ - Phase of `AAA-123` is `build`
+ - Status of task `AAA-123` in phase `build` is `awaiting-pr`
+
+Current branch `build/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State AAA-123::build::awaiting-pr
+----------------------------------------------
+data/workspaces/magpie-weaver$
+```
+
+Promote a task from build::merged-pending-cleanup
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task promote
+Current branch `build/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Evaluating phase of `AAA-123`...
+   - Merged PR (build/AAA-123 or task/AAA-123) -> main exists
+   - `main` is behind `origin/main`
+ - Phase of `AAA-123` is `build`
+ - Status of task `AAA-123` in phase `build` is `merged-pending-cleanup`
+ 
+Promoting AAA-123::build::merged-pending-cleanup... 
+   - No work in progress
+   - Checkout and update branch `main`.
+   - Branch `spec/AAA-123` exists and is not advanced from `main` - OK to delete
+   - Branch `test/AAA-123` exists and is not advanced from `main` - OK to delete
+   - Branch `build/AAA-123` exists and is not advanced from `main` - OK to delete
+   - Task AAA-123 Done - deleting branches...
+     - Delete branch `spec/AAA-123` - OK.
+     - Delete branch `origin/spec/AAA-123` - OK.
+     - Delete branch `test/AAA-123` - OK.
+     - Delete branch `origin/test/AAA-123` - OK.
+     - Delete branch `build/AAA-123` - OK.
+     - Delete branch `origin/build/AAA-123` - OK.
+   - Deleted branches for task AAA-123 - OK.
+  
+Evaluating task status...
+ - Given ref: `AAA-123`
+ - Evaluating phase of `AAA-123`...
+   - Merged PR (build/AAA-123 or task/AAA-123) -> main and change in `main`
+   - No open PR (build/AAA-123 or task/AAA-123) -> main
+   - Merged PR test/AAA-123 -> build/AAA-123 and change in `main`
+   - No open PR test/AAA-123 -> build/AAA-123
+   - No branch `test/AAA-123` exists
+   - No branch `spec/AAA-123` exists
+   - No branch `task/AAA-123` exists
+ - Phase of `AAA-123` is -
+ - Status of task `AAA-123` in phase - is `not-started`
+
+Current branch `main` - ref: -
+----------------------------------------------
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State -::-::not-initialised
+----------------------------------------
+data/workspaces/magpie-weaver$
+```
 
 ### 3.12 `task wip`
 
@@ -841,6 +1392,42 @@ ${message} | "work in progress"
 valid marker. This is an exact string match, checked by `repo-state.ts` as
 part of phase-state derivation, not a prefix/suffix convention.
 
+#### 3.12.1 Human Readable Output
+
+Pack away work in progress
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task wip "A proof of concept" "parked - depending on AAA-234"
+Current branch `task/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating work in progress...
+ - 2 files added
+   - packages/task-phases/src/registry.ts
+   - packages/task-phases/src/index.ts
+ - 1 file changed
+   - packages/task-phases/src/cli.ts
+ - 1 file deleted
+   - packages/task-phases/src/delete-me.ts
+   
+Commiting work in progress on `task/AAA-123`
+--------------------------------------------
+AAA-123: A proof of concept - WIP
+
+parked - depending on AAA-234
+------
+Committed work in progress - OK.
+ 
+Checkout and update `main` - OK.
+
+Current branch `main` - ref: -
+----------------------------------------------
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State -::-::not-initialised
+----------------------------------------
+data/workspaces/magpie-weaver$
+```
+
 ### 3.13 `task <ref>`
 
 ```
@@ -852,6 +1439,41 @@ committing work in progress in its current location of carrying it forward to th
 if `--wip [title] [message]` given
   -> commit changes to a new commit using `title` and `message`
 checkout the canonical branch for the given task.
+
+#### 3.13.1 Human Readable Output
+
+Switch to another task
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task AAA-234
+Current branch `task/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Given reference `AAA-234`
+ - Evaluating phase of `AAA-234`...
+   - No merged PR (build/AAA-234 or task/AAA-234) -> main
+   - No open PR (build/AAA-234 or task/AAA-234) -> main
+   - No merged PR test/AAA-234 -> build/AAA-234
+   - No open PR test/AAA-234 -> build/AAA-234
+   - Branch `test/AAA-234` exists
+ - Phase of `AAA-234` is `test`
+ - Evaluating status of task `AAA-234` in phase `test`...
+   - Branch `spec/AAA-234` is ancestor of `test/AAA-234` => not-stale
+   - No work in progress
+   - No commit
+ - Status of task `AAA-234` in phase `test` is `not-started`
+
+Task `AAA-234` canonical branch is `test/AAA-234`
+Checkout `test/AAA-234` - OK.
+
+Current branch `test/AAA-234` - ref: `AAA-234`
+----------------------------------------------
+Exit Code: 0 - SUCCESS
+Current Task State
+Task::Phase::State AAA-234::test::not-started
+---------------------------------------------
+data/workspaces/magpie-weaver$
+```
 
 ### 3.14 Parked items
 
