@@ -128,9 +128,13 @@ type PhaseState =
                      // rebase + force-push, §3.3/§3.5). `status`/`list`
                      // report it read-only, same treatment as the state
                      // below.
-  | "merged-pending-cleanup"; // gh confirms the Main Gate PR merged; only
-                     // `promote` acts on this (branch deletion, §3.6) —
-                     // `status`/`list` report it read-only
+  | "merged-pending-cleanup"; // gh confirms the Main Gate PR merged and
+                     // the change is not yet reflected in local `main`
+                     // (§3.2) — including the interrupted-cleanup case,
+                     // where a phase branch survives but is already an
+                     // ancestor of local `main`. Only `promote` acts on
+                     // this (branch deletion, §3.6) — `status`/`list`
+                     // report it read-only.
 
 // Task-level state — "not-initialised" only applies before any branch
 // exists at all; every other value is a PhaseState for the derived phase
@@ -155,16 +159,6 @@ interface TaskStatus {
 // the command invoked
 type Command = "init" | "status" | "list" | "promote" | "wip" | "ref";
 
-interface TaskPhasingResult {
-    command; Command;         // the task phasing command that was invoked
-    args: Record<string, boolean | number | string | string[]>;
-                              // a string map of the argument values given
-    taskStatus: TaskStatus     // the derived status of the task at the end of
-                               // command execution
-    result: TaskPhasingCommandResult;
-                                // the result returned from the executed command
-}
-
 interface TaskPhasingCommandResult {
     messages: string[];         // messages surfaced to the caller by the command
                                 // execution
@@ -173,20 +167,149 @@ interface TaskPhasingCommandResult {
     violation?: string;          // any detected task phasing voliation.
     suggestedActions?: string[]; // suggested actions to resolve the violation.
 } // throws invalid-arguements
-/**
- * The signature of all task-phasing functions.
- * Each function receives the inspectors and parsed CLI arguments,
- * and returns a GateCheckResult synchronously or asynchronously.
- */
-export type TaskPhasingFn = (
-    tools: ExternalTools,
-    args: Record<string, boolean | number | string | string[]>,
-) => Promise<TaskPhasingCommandResult> | TaskPhasingCommandResult;
 
 /**
- * The function catalog linking function definitions to command names.
+ * `init`-specific result data (§3.8). Extends the base result with what a
+ * caller needs to know about what was actually created, beyond generic
+ * messages — e.g. an agent chaining `init` -> `wip` -> `promote` needs the
+ * canonical branch name without re-deriving it via a separate `status` call.
  */
-export type FunctionCatalog = Record<Command, TaskPhasingFn>;
+interface InitCommandResult extends TaskPhasingCommandResult {
+  ref: TaskRef;
+  canonicalBranch: string;        // spec/{ref} or task/{ref}, whichever was created
+  taskDocPath: string | null;     // path to the created/copied task doc, if any
+  specDocPaths: string[];         // paths of any spec docs copied in (§3.8's --specs)
+  wipCarriedForward: boolean;     // true if pre-existing WIP was committed via
+                                  // --wip before creating the new branch (§3.8)
+}
+
+/**
+ * `status`-specific result data (§3.9). The base `TaskPhasingResult.taskStatus`
+ * already carries the derived `TaskStatus` for whichever ref was inspected
+ * (current or `--ref`-given) — this extension only adds what's specific to
+ * *how* status was invoked, not duplicate that.
+ */
+interface StatusCommandResult extends TaskPhasingCommandResult {
+  checked: boolean;        // true iff --check was given AND actually ran
+                           // gate-check (false if ready? was left unresolved,
+                           // or if --check was refused — see checkRefused)
+  checkRefused: boolean;   // true iff --check was given but refused because
+                           // --ref named a task other than the checked-out
+                           // one (§3.9) — success is false whenever this is
+                           // true, per the exit-code contract in §4.1
+  fixed: boolean;          // true iff --fix actually performed a branch
+                           // switch (false if already on the canonical
+                           // branch, so there was nothing to fix)
+}
+
+/**
+ * `list`-specific result data (§3.10). The one command whose whole point is
+ * reporting on *every* active task, not a single ref — the base
+ * `TaskPhasingResult.taskStatus` (singular) can't carry this; `list`'s
+ * extension is where the actual payload lives.
+ */
+interface ListCommandResult extends TaskPhasingCommandResult {
+  tasks: TaskStatus[];       // every active ref's derived TaskStatus (§3.10)
+  currentRef: TaskRef | null; // which entry (if any) is the currently
+                             // checked-out task, for the `<== Current Task`
+                             // marker in human output (§3.10.1)
+}
+
+/**
+ * `promote`-specific result data (§3.11). Surfaces what action, if any, was
+ * actually taken — a caller (especially an agent scripting against --json)
+ * needs to distinguish "genuinely promoted" from "reported ready but blocked
+ * on branchMismatch/awaiting-pr" without re-parsing prose messages. The
+ * *why* of "none" is already covered by the base `violation` field
+ * (§3.11's `branchMismatch`/`awaiting-pr`/`blocked` cases) — not duplicated
+ * here. `RebaseOutcome` below is `deps/git.ts`'s own type (§4.8) — imported
+ * here, not redefined; `types.ts` depends on `deps/git.ts`, not the reverse.
+ */
+interface PromoteCommandResult extends TaskPhasingCommandResult {
+  action:
+    | "none"               // branchMismatch, awaiting-pr, or blocked — nothing
+                           // performed (§3.11's first three bullets)
+    | "forked"             // spec/{ref} -> test/{ref} (the "ready" action for
+                           // spec phase)
+    | "pr-raised"          // a destination-gate PR was opened (§3.7's table)
+    | "rebased"            // rebase-forward performed, §3.5 (either case)
+    | "pulled"             // merged-pending-pull resolved, no reorder needed
+    | "pulled-and-rebased" // merged-pending-pull resolved WITH a reorder
+                           // (§3.5 step 4)
+    | "cleaned-up";        // merged-pending-cleanup resolved (§3.6), including
+                           // the interrupted-cleanup retrigger case (§3.2)
+  prNumber?: number;             // set when action is "pr-raised"
+  prUrl?: string;                // set when action is "pr-raised"
+  rebaseOutcome?: RebaseOutcome; // set when action is "rebased" or
+                                 // "pulled-and-rebased" (§4.8) — surfaces
+                                 // conflict/unexpected-commit-count directly
+                                 // rather than only as prose
+  branchesDeleted?: string[];    // set when action is "cleaned-up" (§3.6)
+}
+
+/**
+ * `wip`-specific result data (§3.12).
+ */
+interface WipCommandResult extends TaskPhasingCommandResult {
+  commitSha: string;
+  filesAdded: string[];
+  filesChanged: string[];
+  filesDeleted: string[];
+}
+
+/**
+ * `ref`-specific result data (§3.13) — the `pnpm task <ref>` switch command.
+ */
+interface RefCommandResult extends TaskPhasingCommandResult {
+  switchedFrom: string | null; // branch checked out before the switch
+  switchedTo: string;          // the canonical branch switched to
+  wipCommitSha?: string;       // set if --wip committed work before switching
+}
+
+type CommandResultFor<C extends Command> =
+  C extends "init" ? InitCommandResult :
+  C extends "status" ? StatusCommandResult :
+  C extends "list" ? ListCommandResult :
+  C extends "promote" ? PromoteCommandResult :
+  C extends "wip" ? WipCommandResult :
+  C extends "ref" ? RefCommandResult :
+  never;
+
+interface TaskPhasingResult<C extends Command = Command> {
+    command: C;               // the task phasing command that was invoked
+    args: Record<string, boolean | number | string | string[]>;
+                              // a string map of the argument values given
+    taskStatus: TaskStatus;    // the derived status of the task at the end of
+                               // command execution
+    result: CommandResultFor<C>;  // narrowed to the command-specific
+                                  // extension above, not the generic base
+}
+
+/**
+ * The signature of all task-phasing functions, generic over which
+ * command-specific result extension the function returns. Each function
+ * receives the inspectors and parsed CLI arguments, and returns its
+ * result synchronously or asynchronously.
+ */
+export type TaskPhasingFn<R extends TaskPhasingCommandResult = TaskPhasingCommandResult> = (
+    tools: ExternalTools,
+    args: Record<string, boolean | number | string | string[]>,
+) => Promise<R> | R;
+
+/**
+ * The function catalog linking function definitions to command names — an
+ * explicit per-key interface rather than a generic `Record<Command,
+ * TaskPhasingFn>`, so each command's function signature carries its own
+ * specific return type instead of the generic base.
+ */
+export interface FunctionCatalog {
+  init: TaskPhasingFn<InitCommandResult>;
+  status: TaskPhasingFn<StatusCommandResult>;
+  list: TaskPhasingFn<ListCommandResult>;
+  promote: TaskPhasingFn<PromoteCommandResult>;
+  wip: TaskPhasingFn<WipCommandResult>;
+  ref: TaskPhasingFn<RefCommandResult>;
+}
 
 /**
  * The external tools to be passed to each task-phasing function call.
@@ -279,8 +402,8 @@ pnpm task <ref> [--wip [title] [message]] [--json]
     without switching branches. Combining `--ref` with `--check` is only valid when `<ref>` is the
     currently checked-out task — `gate-check` runs against the actual working tree, so resolving
     `ready?` for a different task's `<ref>` would need that task's files checked out, which `--ref`
-    on its own does not do. `status --ref <other-ref> --check` fails with an explicit error rather
-    than silently running `gate-check` against the wrong task's files.
+    on its own does not do. `status --ref <other-ref> --check` fails with an explicit error (exit
+    code 1) rather than silently running `gate-check` against the wrong task's files.
 * `--confirm-rebase` on promote allows headless rebase spec -> test or test -> build
 
 
@@ -319,7 +442,6 @@ distinct kinds of check, deliberately kept separate:
   This one *is* answered with ancestry (`git merge-base --is-ancestor`),
   per §3.5, because it's checking the tool's own fork relationships, not
   a PR's merge state.
-
 - **"Is a destination-gate PR currently open, awaiting human review?"** —
   also answered via `gh` (`gh pr list --state open`), checked immediately
   alongside the merged check. This produces the `awaiting-pr` `PhaseState`
@@ -352,14 +474,23 @@ else if gh reports an OPEN PR: test/{ref} -> build/{ref}
      -> phase = test; state = awaiting-pr
         (ancestry check against spec/{ref} — staleness only, 3.5)
 else if test/{ref} exists
-     -> phase = test; state = not-started | work-in-progress | ready?
-        (ancestry check against spec/{ref} — staleness only, 3.5)
+     if test/{ref} is an ancestor of local main
+          -> phase = build (or quick); state = merged-pending-cleanup   // interrupted cleanup, retrigger
+     else
+          -> phase = test; state = not-started | work-in-progress | ready?
+             (ancestry check against spec/{ref} — staleness only, 3.5)
 else if spec/{ref} exists
-     -> phase = spec; state = not-started | work-in-progress | ready?
-        (ancestry check against main — staleness only, 3.5)
+     if spec/{ref} is an ancestor of local main
+          -> phase = build (or quick); state = merged-pending-cleanup
+     else
+          -> phase = spec; state = not-started | work-in-progress | ready?
+             (ancestry check against main — staleness only, 3.5)
 else if task/{ref} exists
-     -> phase = quick; state = not-started | work-in-progress | ready?
-        (ancestry check against main — staleness only, 3.5)
+     if task/{ref} is an ancestor of local main
+          -> phase = quick; state = merged-pending-cleanup
+     else
+          -> phase = quick; state = not-started | work-in-progress | ready?
+             (ancestry check against main — staleness only, 3.5)
 else
      -> not-initialised
 
@@ -368,6 +499,18 @@ if state == ready? and the invoking command is `promote` or `status --check`
         this phase's destination gate (3.7). Every other invocation
         (plain `status`, `list`) reports `ready?` as-is, unresolved.
 ```
+
+Whichever branch triggers the interrupted-cleanup retrigger, the reported
+phase is the same as the top-level `merged-pending-cleanup` case (`build`
+for the regular route, `quick` for the quick route) — which specific
+surviving branch matched doesn't change the resulting action, since
+`promote` re-attempts cleanup across whatever remains regardless. This
+matters for determinism: without this safety net, a cleanup interrupted
+between "update local `main`" and "delete branches" (§3.6) would cause a
+later `status`/`promote` call to wrongly regress to reporting an earlier,
+stale phase for a task that's actually done — rather than a manual
+re-run being required to notice, phase-state derivation stays accurate
+and deterministic regardless of exactly where cleanup was interrupted.
 
 Each ancestry check is `git merge-base --is-ancestor <parent-HEAD>
 <child-HEAD>`. This is what makes amending an earlier phase safe and
@@ -552,7 +695,6 @@ every other rewrite in this design, at whatever later point in time
 may take an arbitrary amount of real time to actually get reviewed).
 (Appendix - §3.5.b)
 
-
 **The same treatment applies one level down, too: `main` moving ahead of
 `spec/{ref}` or `task/{ref}`.** Unlike the within-task cases above, this
 isn't about an earlier *phase* of this task being amended — it's ordinary
@@ -578,12 +720,20 @@ single event, triggered only once `promote` (via the `gh`-based check in
 §3.3) detects the task's Main Gate PR has merged:
 
 1. `git fetch origin`.
-2. Delete `spec/{ref}`, `test/{ref}`, `build/{ref}` (or, on the quick
+2. Checkout and update local `main` to match `origin/main`.
+3. Delete `spec/{ref}`, `test/{ref}`, `build/{ref}` (or, on the quick
    route, `task/{ref}`) — whichever exist — both locally and on `origin`.
-3. Report the task as done. No further branch exists for this ref;
+4. Report the task as done. No further branch exists for this ref;
    subsequent `status`/`list` calls against it report `not-initialised`
    should the ref ever be reused, though re-use isn't itself designed for
    here.
+
+Should this sequence be interrupted between steps 2 and 3, §3.2's
+ancestry safety net keeps a later `status`/`promote` call deterministic —
+it re-derives `merged-pending-cleanup` and re-attempts cleanup rather than
+reporting a stale earlier phase, and `deleteBranch` already tolerates
+"doesn't exist locally" as a no-op, so re-running step 3 against whatever
+partially survived is safe.
 
 Everything past this point — the push to `uat`, and the `uat` → `main`
 (production) PR — is CI/CD automation outside `task-phases`'s tracked
@@ -696,14 +846,14 @@ if `--doc <path>` given and task doc does not exist
   -> copy path to task dir as task doc
 else if `--title <title>` is given and the task doc does not exist
   -> copy task template to task dir as task doc (replacing ${ref} and ${title})
-if `--spec <path>...` is given
+if `--specs <path>...` is given
   -> for each `<path>`
     -> copy `<path>` to task dir as specification doc. 
 if `--wip [title] [message]` is given
   -> commit WIP on current branch (new commit can always be squashed later to open the gate)
      `title` and `message` if given are included in the commit.
 
-**`--doc`/`--spec` are helper conveniences, not core requirements.** Any
+**`--doc`/`--specs` are helper conveniences, not core requirements.** Any
 deviation from the supported happy path (a given path doesn't exist, a
 doc already present when `--title` also given, a spec file collides with
 an existing name, etc.) is handled gracefully: warn the user and continue
@@ -755,6 +905,7 @@ Task::Phase::State AAA-001::spec::work-in-progress
 --------------------------------------------------
 data/workspaces/magpie-weaver$
 ```
+
 Create a new task AAA-002 from main with no spec
 
 ```bash
@@ -769,24 +920,23 @@ Task::Phase::State -::-::not-initialised
 Initialising new task: 'AAA-002' Do a thing without specs...
  - Check for WIP - OK.
  - Check `main` is up to date with `origin` - OK.
- - Check Branch `spec/AAA-001` is available - does not exist - OK.
- - Create branch `spec/AAA-001` - OK.
+ - Check Branch `spec/AAA-002` is available - does not exist - OK.
+ - Create branch `spec/AAA-002` - OK.
  - Initialising task documentation: `docs/tasks/AAA-002`...
    - Create task directory `docs/tasks/AAA-002` - OK.
    - Create `task-AAA-002.md` from template, title: "Do a thing without specs" - OK.
-   - Copying specs... 
-   - Spec copied - OK
+   - No specs given - skipped.
  - Initialising task documentation: `docs/tasks/AAA-002` - OK.
-Initialising new task: 'AAA-002' Do a thing without specs - OK.
+New task `AAA-002` Do a thing without specs initialised - OK.
 
 Exit Code: 0 - SUCCESS
 Current Task State
-Task::Phase::State AAA-001::spec::work-in-progress
+Task::Phase::State AAA-002::spec::work-in-progress
 --------------------------------------------------
 data/workspaces/magpie-weaver$
 ```
 
-Create a new task AAA-003 from main with work in progress
+Create a new task AAA-003 from main with existing work in progress and no `--wip` given (fails)
 
 ```bash
 data/workspaces/magpie-weaver$ pnpm task init AAA-003 \
@@ -800,22 +950,22 @@ Task::Phase::State ABC-123::build::work-in-progress
 
 Initialising new task: 'AAA-003' Do a thing...
  - Check for WIP - changed found.
- - No WIP instrution - FAIL!
+ - No WIP instruction - FAIL!
 Initialising new task: 'AAA-003' Do a thing - FAIL!.
 
-Exit Code: 1 - FAILED!
+Exit Code: 1 - FAILURE
 Current Task State
 Task::Phase::State ABC-123::build::work-in-progress
 ---------------------------------------------------
 data/workspaces/magpie-weaver$
 ```
 
-Create a new task AAA-003 from main handling work in progress
+Create a new task AAA-003 from main, handling existing work in progress via `--wip`
 
 ```bash
-data/workspaces/magpie-weaver$ pnpm task init AAA-000 \
+data/workspaces/magpie-weaver$ pnpm task init AAA-003 \
 --wip "A PoC" "No longer required" \
---doc ../magpieweaver-docs/docs/setup/dev-env/task-phasing/AAA-000-tasknote.md \
+--doc ../magpieweaver-docs/docs/setup/dev-env/task-phasing/AAA-003-tasknote.md \
 --specs ../magpieweaver-docs/docs/setup/dev-env/task-phasing/spec-1-scaffolding.md 
 Current branch `build/ABC-123` - ref: `ABC-123`
 ----------------------------------------------
@@ -832,24 +982,23 @@ Initialising new task: 'AAA-003' Do a thing...
    - ---
  - Handling WIP - OK.
  - Check `main` is up to date with `origin` - OK.
- - Check Branch `spec/AAA-001` is available - does not exist - OK.
- - Create branch `spec/AAA-001` - OK.
- - Initialising task documentation: `docs/tasks/AAA-001`...
-   - Create task directory `docs/tasks/AAA-001` - OK.
-   - Create `task-AAA-001.md` from template, title: "Do a thing" - OK.
+ - Check Branch `spec/AAA-003` is available - does not exist - OK.
+ - Create branch `spec/AAA-003` - OK.
+ - Initialising task documentation: `docs/tasks/AAA-003`...
+   - Create task directory `docs/tasks/AAA-003` - OK.
+   - Create `task-AAA-003.md` from `--doc` path - OK.
    - Copying specs...
-     - ../magpieweaver-docs/docs/setup/dev-env/task-phasing/spec-1-scaffolding.md -> `task-AAA-001-01-spec.md`
+     - ../magpieweaver-docs/docs/setup/dev-env/task-phasing/spec-1-scaffolding.md -> `task-AAA-003-01-spec.md`
    - Copying specs - OK.
- - Initialising task documentation: `docs/tasks/AAA-001` - OK.
-New task `AAA-001` Do a thing initialised - OK.
+ - Initialising task documentation: `docs/tasks/AAA-003` - OK.
+New task `AAA-003` Do a thing initialised - OK.
 
 Exit Code: 0 - SUCCESS
 Current Task State
-Task::Phase::State AAA-001::spec::work-in-progress
+Task::Phase::State AAA-003::spec::work-in-progress
 --------------------------------------------------
 data/workspaces/magpie-weaver$
 ```
-
 
 ### 3.9 `task status`
 
@@ -877,8 +1026,12 @@ if `--ref <ref>` given
      WIP on unless `<ref>` is also the checked-out task)
   if `--check` also given and `<ref>` is not the currently checked-out
      task's ref
-    -> fail: "--check requires <ref> to be the checked-out task;
-       gate-check runs against the working tree"
+    -> fail (exit code 1): "`--check` requires `<ref>` to be the
+       checked-out task; `gate-check` runs against the working tree" —
+       this command did not deliver what was asked (an authoritative
+       resolved `ready?`/`blocked` for `<ref>`), so it must not report
+       success even though phase/state derivation for `<ref>` itself
+       succeeded as far as it went
 
 if `--fix [branch]` given
   if branch miss match
@@ -919,7 +1072,7 @@ Evaluating task status...
      - task doc exists
      - ...
    - `build-gate` check passed
- - Status of task `AAA-123` in phase `test` is `ready`.   
+ - Status of task `AAA-123` in phase `test` is `ready`.
 
 Exit Code: 0 - SUCCESS
 Current Task State
@@ -957,63 +1110,9 @@ Task::Phase::State AAA-123::test::ready?
 data/workspaces/magpie-weaver$
 ```
 
-Get the status of another task
-
-```bash
-data/workspaces/magpie-weaver$ pnpm task status --ref ABC-789
-Current branch `test/AAA-123` - ref: `AAA-123`
-----------------------------------------------
-Evaluating task status...
- - Given ref: `ABC-789`
- - Evaluating phase of `ABC-789`...
-   - No merged PR (build/ABC-789 or task/ABC-789) -> main
-   - No open PR (build/AABC-789 or task/ABC-789) -> main
-   - No merged PR test/ABC-789 -> build/ABC-789
-   - Open PR test/ABC-789 -> build/ABC-789
- - Phase of `ABC-789` is `test`
- - Status of `ABC-789` in phase `test` is `awaiting-pr`
-
-Exit Code: 0 - SUCCESS
-Task ABC-789 State
-Task::Phase::State ABC-789::test::awaiting-pr
----------------------------------------------
-data/workspaces/magpie-weaver$
-```
-
-Get the status of another task and resolve the ready? status
-
-```bash
-data/workspaces/magpie-weaver$ pnpm task status --ref ABC-789 --check
-Current branch `test/AAA-123` - ref: `AAA-123`
-----------------------------------------------
-Evaluating task status...
- - Given ref: `ABC-789`
- - Evaluating phase of `ABC-789`...
-   - No merged PR (build/ABC-789 or task/ABC-789) -> main
-   - No open PR (build/ABC-789 or task/ABC-789) -> main
-   - No merged PR test/ABC-789 -> build/ABC-789
-   - No open PR test/ABC-789 -> build/ABC-789
-   - Branch `test/ABC-789` exists
- - Phase of `ABC-789` is `test`
- - Evaluating status of task `ABC-789` in phase `test`...
-   - Branch `spec/ABC-789` is ancestor of `test/ABC-789` => not-stale
-   - No work in progress
-   - Commit detected
-   - Commit is not WIP
- - Status of task `ABC-789` in phase `test` is `ready?`
- - `ABC-123` is not the current task. Unable to resolve `ready?`
-
-Exit Code: 0 - SUCCESS
-Current Task State
-Task::Phase::State AAA-123::test::ready?
-----------------------------------------
-data/workspaces/magpie-weaver$
-```
-
 Get the status of the current task when there is a branch mismatch
 
 ```bash
-data/workspaces/magpie-weaver$ pnpm task status 
 data/workspaces/magpie-weaver$ pnpm task status
 Current branch `test/AAA-123` - ref: `AAA-123`
 ----------------------------------------------
@@ -1041,6 +1140,59 @@ Task::Phase::State AAA-123::test::ready?
 data/workspaces/magpie-weaver$
 ```
 
+Get the status of another task
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task status --ref ABC-789
+Current branch `test/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Given ref: `ABC-789`
+ - Evaluating phase of `ABC-789`...
+   - No merged PR (build/ABC-789 or task/ABC-789) -> main
+   - No open PR (build/ABC-789 or task/ABC-789) -> main
+   - No merged PR test/ABC-789 -> build/ABC-789
+   - Open PR test/ABC-789 -> build/ABC-789
+ - Phase of `ABC-789` is `test`
+ - Status of `ABC-789` in phase `test` is `awaiting-pr`
+
+Exit Code: 0 - SUCCESS
+Task ABC-789 State
+Task::Phase::State ABC-789::test::awaiting-pr
+---------------------------------------------
+data/workspaces/magpie-weaver$
+```
+
+Get the status of another task and attempt to resolve the ready? status (fails — `--check` requires the given ref to be the checked-out task)
+
+```bash
+data/workspaces/magpie-weaver$ pnpm task status --ref ABC-789 --check
+Current branch `test/AAA-123` - ref: `AAA-123`
+----------------------------------------------
+Evaluating task status...
+ - Given ref: `ABC-789`
+ - Evaluating phase of `ABC-789`...
+   - No merged PR (build/ABC-789 or task/ABC-789) -> main
+   - No open PR (build/ABC-789 or task/ABC-789) -> main
+   - No merged PR test/ABC-789 -> build/ABC-789
+   - No open PR test/ABC-789 -> build/ABC-789
+   - Branch `test/ABC-789` exists
+ - Phase of `ABC-789` is `test`
+ - Evaluating status of task `ABC-789` in phase `test`...
+   - Branch `spec/ABC-789` is ancestor of `test/ABC-789` => not-stale
+   - No work in progress
+   - Commit detected
+   - Commit is not WIP
+ - Status of task `ABC-789` in phase `test` is `ready?`
+ - `--check` requires `ABC-789` to be the checked-out task (currently `AAA-123`) - refusing.
+
+Exit Code: 1 - FAILURE
+Task ABC-789 State
+Task::Phase::State ABC-789::test::ready?
+-----------------------------------------
+data/workspaces/magpie-weaver$
+```
+
 ### 3.10 `task list`
 
 ```
@@ -1051,7 +1203,7 @@ queries the branches and commits, lists the active tasks with their derived phas
 
 the same pipeline across every ref with an active branch;
 never resolves `ready?` (no `--check` equivalent — see the open
-question in §3.9 on whether bulk resolution across many refs is worth
+question in §3.14 on whether bulk resolution across many refs is worth
 adding later).
 
 List all branches in the repo
@@ -1059,7 +1211,6 @@ filter on branches matching `/[A-Z]+-[0-9]+$` (`*/{ref}`)
 group by `{ref}`
 For each `{ref}` output
 - `{ref}` phase: `{phase}` state: `{phase-state}` [`<--` if current task [`MISSMATCH` if branchMissMatch]]
-
 
 #### 3.10.1 Human Readable Output
 ```bash
@@ -1107,7 +1258,8 @@ without knowing):
   (§3.5's cascading case), rebases and force-pushes, gated on
   `--confirm-rebase` or an interactive prompt — otherwise a plain,
   unconfirmed pull.
-- `merged-pending-cleanup` (§3.3, §3.6) → performs final cleanup.
+- `merged-pending-cleanup` (§3.3, §3.6) → performs final cleanup,
+  including the interrupted-cleanup retrigger case (§3.2).
 
 #### 3.11.1 Human Readable Output
 
@@ -1194,18 +1346,17 @@ Evaluating task status...
      - task doc exists
      - ...
    - `build-gate` check passed
- - Status of task `AAA-123` in phase `test` is `ready`.  
- 
-Promoting AAA-123::test::ready... 
-  - Raising PR `test/AAA-123` -> `origin/build/AAA-123` - "Failing tests for AAA-123"...
-    - Raise PR - PR #46 raised - OK
-  - Build Gate PR raised for task `AAA/123` - OK
-  
+ - Status of task `AAA-123` in phase `test` is `ready`.
+
+Promoting AAA-123::test::ready...
+  - Raising PR `test/AAA-123` -> `build/AAA-123` - "Tests for AAA-123"...
+    - Raise PR - PR #45 raised - OK
+  - Build Gate PR raised for task `AAA-123` - OK
+
 Evaluating task status...
  - Evaluating phase of `AAA-123`...
    - No merged PR (build/AAA-123 or task/AAA-123) -> main
    - No open PR (build/AAA-123 or task/AAA-123) -> main
-   - No merged PR test/AAA-123 -> build/AAA-123
    - Open PR test/AAA-123 -> build/AAA-123
  - Phase of `AAA-123` is `test`
  - Status of task `AAA-123` in phase `test` is `awaiting-pr`
@@ -1215,14 +1366,14 @@ Current branch `test/AAA-123` - ref: `AAA-123`
 Exit Code: 0 - SUCCESS
 Current Task State
 Task::Phase::State AAA-123::test::awaiting-pr
----------------------------------------------
+----------------------------------------------
 data/workspaces/magpie-weaver$
 ```
 
-Promote a task from build::merged-pending-pull
+Promote a task from build::not-started (Build Gate PR has merged, freshly pulled)
 
 ```bash
-data/workspaces/magpie-weaver$ pnpm task promote
+data/workspaces/magpie-weaver$ pnpm task status
 Current branch `build/AAA-123` - ref: `AAA-123`
 ----------------------------------------------
 Evaluating task status...
@@ -1232,20 +1383,7 @@ Evaluating task status...
    - Merged PR test/AAA-123 -> build/AAA-123 exists and test/AAA-123 not mutated from PR
  - Phase of `AAA-123` is `build`
  - Evaluating status of task `AAA-123` in phase `build`...
-   - Branch `build/AAA-123` does not exist
- - Status of task `AAA-123` in phase `build` is `merged-pending-pull`
- 
-Promoting AAA-123::build::merged-pending-pull... 
-  - Pull changes from `origin/build/AAA-123` -> `build/AAA-123` - OK.
-  
-Evaluating task status...
- - Evaluating phase of `AAA-123`...
-   - No merged PR (build/AAA-123 or task/AAA-123) -> main
-   - No open PR (build/AAA-123 or task/AAA-123) -> main
-   - Merged PR test/AAA-123 -> build/AAA-123 exists and test/AAA-123 not mutated from PR
- - Phase of `AAA-123` is `build`
- - Evaluating status of task `AAA-123` in phase `build`...
-   - Branch `build/AAA-123` exist
+   - Branch `build/AAA-123` exists
    - No work in progress
    - No commit detected
  - Status of task `AAA-123` in phase `build` is `not-started`
@@ -1272,7 +1410,7 @@ Evaluating task status...
    - Merged PR test/AAA-123 -> build/AAA-123 exists and test/AAA-123 not mutated from PR
  - Phase of `AAA-123` is `build`
  - Evaluating status of task `AAA-123` in phase `build`...
-   - Branch `build/AAA-123` exist
+   - Branch `build/AAA-123` exists
    - Branch `origin/build/AAA-123` is ancestor of `build/AAA-123`
    - No work in progress
    - Commit detected
@@ -1285,8 +1423,8 @@ Evaluating task status...
      - task doc exists
      - ...
    - `main-gate` check passed
- - Status of task `AAA-123` in phase `build` is `ready`.  
- 
+ - Status of task `AAA-123` in phase `build` is `ready`.
+
 Promoting AAA-123::build::ready... 
   - Push `build/AAA-123` -> `origin/main/AAA-123`
   - Raising PR `origin/main/AAA-123` -> `origin/main` - "Implementation of AAA-123"...
@@ -1348,7 +1486,7 @@ Evaluating task status...
    - No branch `spec/AAA-123` exists
    - No branch `task/AAA-123` exists
  - Phase of `AAA-123` is -
- - Status of task `AAA-123` in phase - is `not-started`
+ - Status of task `AAA-123` in phase - is `not-initialised`
 
 Current branch `main` - ref: -
 ----------------------------------------------
@@ -1377,7 +1515,9 @@ unambiguously as paused rather than abandoned mid-edit:
    manufacture an empty commit to force a WIP marker into existence.
 3. Otherwise, stage everything and commit with title `{ref} WIP` (the
    literal substring `WIP` in the title is the recognised marker — see the
-   WIP convention below), then push.
+   WIP convention below), then push. `wip` never switches branches — it
+   commits on whatever is currently checked out and leaves it checked out
+   afterward; nothing about "packing work away" implies moving elsewhere.
 
 *commit message*
 ```
@@ -1416,15 +1556,13 @@ AAA-123: A proof of concept - WIP
 parked - depending on AAA-234
 ------
 Committed work in progress - OK.
- 
-Checkout and update `main` - OK.
 
-Current branch `main` - ref: -
+Current branch `task/AAA-123` - ref: `AAA-123`
 ----------------------------------------------
 Exit Code: 0 - SUCCESS
 Current Task State
-Task::Phase::State -::-::not-initialised
-----------------------------------------
+Task::Phase::State AAA-123::quick::work-in-progress
+-----------------------------------------------------
 data/workspaces/magpie-weaver$
 ```
 
@@ -1500,8 +1638,6 @@ data/workspaces/magpie-weaver$
 
 **Not parked — deliberately sequenced after this document, not a gap in
 it:**
-- **Example human-readable output per command** — being added directly to
-  this document.
 - **Test plan** — intentionally comes *after* this design is finalised,
   as `task-*-spec.md` documents following `SPEC-TEMPLATE.md` (per-behaviour
   `Given`/`When`/`Then` conditions, including required assertions on every
@@ -1522,12 +1658,30 @@ if `--json` flag given
 else 
   -> writes human output from `TaskPhasingCommandResult`
 
+**Exit code is a strict, mechanical function of
+`TaskPhasingCommandResult.success` — never a place for a command to
+diverge from what it already returned.** `cli.ts` exits `0` iff
+`result.success === true`; otherwise nonzero — `2` specifically for
+invalid-argument/usage errors (thrown before a command's own logic runs),
+`1` for every other unsuccessful result (a command that ran to completion
+but didn't deliver what was asked — blocked, refused, or unable to answer
+authoritatively, per §3.9.1's `--check`-on-a-different-ref case). This
+exists because a caller checking only the exit code — the common case for
+shell scripts and CI, which may not parse `--json` output at all — must
+never get a signal that disagrees with the structured result.
+
 ### 4.2 `types.ts`
-Defines `TaskRef`, `Phase`, `PhaseState`, `TaskState`, `TaskStatus`, and the
-placeholder `GateCheckResult`. `@magpieweaver/gate-check` exists and is
-functioning in-repo already — this is a normal implementation-time
-integration step against a real, available package, not an open unknown
-blocking the design.
+Defines `TaskRef`, `Phase`, `PhaseState`, `TaskState`, `TaskStatus`, the
+per-command result extensions (`InitCommandResult`, `StatusCommandResult`,
+`ListCommandResult`, `PromoteCommandResult`, `WipCommandResult`,
+`RefCommandResult` — each command returns its own extension of
+`TaskPhasingCommandResult` rather than every command sharing one generic
+shape, since what's actually pertinent to report differs per command —
+`list` needs the full task array, `promote` needs which action was taken,
+etc.), and the placeholder `GateCheckResult`. `@magpieweaver/gate-check`
+exists and is functioning in-repo already — this is a normal
+implementation-time integration step against a real, available package,
+not an open unknown blocking the design.
 
 ### 4.3 `registry.ts`
 Exports `commandRegistry: Record<string, CommandHandler>` mapping `init`,
@@ -1544,10 +1698,11 @@ means adding one file under `commands/` plus one entry here.
 
 ### 4.5 `lib/repo-state.ts`
 Fetches `origin`; derives phase via `lib/gh.ts`'s merge-status and open-PR
-checks first (§3.2/§3.3), falling back to branch existence, then runs the
-ancestry staleness check (§3.5) against whichever phase is derived; also
-computes the canonical-vs-current branch mismatch (§3.4) and, where
-relevant, whether local `build/{ref}` matches `origin/build/{ref}`
+checks first (§3.2/§3.3), falling back to branch existence (including the
+interrupted-cleanup ancestry safety net, §3.2), then runs the ancestry
+staleness check (§3.5) against whichever phase is derived; also computes
+the canonical-vs-current branch mismatch (§3.4) and, where relevant,
+whether local `build/{ref}` matches `origin/build/{ref}`
 (`merged-pending-pull`, §3.3). Detects the WIP marker (§3.8) and dirty-
 worktree state to distinguish `not-started` / `work-in-progress` from a
 state requiring gate-check resolution. Reports these states only — it
@@ -1556,8 +1711,8 @@ never mutates local branches itself; that's `promote`'s job exclusively
 
 ### 4.6 `lib/task-doc.ts`
 Owns `task-{ref}.md` / `task-{ref}-NN-spec.md` scaffolding and the
-new-chunk `--spec` import path used by `init`. Detailed design parked
-(§3.9).
+new-chunk `--specs` import path used by `init`. Detailed design parked
+(§3.14).
 
 ### 4.7 `deps/gate-check.ts`
 Thin typed wrapper importing `@magpieweaver/gate-check` directly as a
@@ -1703,10 +1858,10 @@ interface GitTool {
   isDirty(): Promise<boolean>;
 
   /** `git merge-base --is-ancestor <ancestor> <descendant>` (§3.2's
-   * staleness checks; used internally by `rebase()`'s precondition, not
-   * just by callers directly). Exit code 1 is a legitimate `false`, not
-   * an error — the wrapper only throws on other exit codes (e.g.
-   * unknown ref). */
+   * staleness checks, including the interrupted-cleanup safety net;
+   * used internally by `rebase()`'s precondition, not just by callers
+   * directly). Exit code 1 is a legitimate `false`, not an error — the
+   * wrapper only throws on other exit codes (e.g. unknown ref). */
   isAncestor(ancestor: string, descendant: string): Promise<boolean>;
 
   /** `git checkout -b <newBranch> <fromRef>` — creates `newBranch` off
@@ -1878,7 +2033,7 @@ interface FileSystemTool {
   writeFile(path: string, content: string): Promise<void>;
 
   /** Copies `src` to `dest`, creating parent directories as needed —
-   * backs `init`'s `--doc`/`--spec` copy steps (§3.8). */
+   * backs `init`'s `--doc`/`--specs` copy steps (§3.8). */
   copyFile(src: string, dest: string): Promise<void>;
 
   /** Creates `path` (and parents) if it doesn't already exist — backs
