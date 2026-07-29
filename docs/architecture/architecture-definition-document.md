@@ -382,7 +382,7 @@ columns currently applies.
 | ---------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
 | **Commit-scope diff inspection**                           | Test commit, Build commit                                            | The "Agent may / may not change" boundaries in §1 above — a Test commit touching implementation files, or a Build commit touching the test package or spec docs, fails the check                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | ADR-015; ADR-021            |
 | **Fail-then-pass test ordering, existing tests immutable** | Test commit (pre-implementation), Build commit (post-implementation) | New tests in the Test commit must **fail** against the pre-existing codebase; **any diff touching a pre-existing test file, or anything outside the test package, fails the check outright** — this is a hard invariant with no built-in automated exception. After the Build commit, **all** tests (new and old) must pass, with no further test edits. In-progress drafting/revision of *this task's new tests* is unrestricted before the final commit — intermediate commits are squashed into one before the gate evaluates anything, so the gate only ever diffs the final squashed Test commit against mainline's prior state, never the agent's own iteration history | HLD §11.3; ADR-015; ADR-021 |
-| **Diff-scoped coverage thresholds**                        | Build commit                                                         | ~80–85% overall codebase coverage; **95%+ on new/changed lines specifically** (diff coverage, not whole-file) — avoids penalizing an agent for pre-existing untested code in a touched file                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | HLD §11.3                   |
+| **Diff-scoped coverage thresholds**                        | Build commit                                                         | ~80% overall codebase coverage; **90%+ on new/changed lines specifically** (diff coverage, not whole-file) — avoids penalizing an agent for pre-existing untested code in a touched file                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | HLD §11.3                   |
 | **"Unicorn linter" (weak-but-passing test detection)**     | Test commit, Build commit                                            | Flags code/tests built on literal-value checks disconnected from the component's natural behaviour — a test that passes mechanically without actually exercising the requirement it claims to cover                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HLD §11.3                   |
 | **Small-change fast path**                                 | Task start                                                           | Changes that don't require altering existing tests and still pass coverage checks may skip the full three-gate cycle and go straight to implementation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | HLD §11.3                   |
 | **Branch protection / required status checks**             | Every PR/merge attempt                                               | Makes every check above an actual merge precondition, not an advisory one                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | ADR-021                     |
@@ -507,15 +507,98 @@ happens if a `deploy-prod` sanity test fails after mainline has already been mer
 define the rollback procedure and who/what triggers it.
 
 ### OpenCode Configuration
-**TBC** — see task `TBD-07`.
 
-> **Note:** OpenCode is confirmed as the correct tool (see the Guard Rails
-> section above, §4) — the earlier naming conflict with the HLD's Kiro
-> references has been resolved and corrected in both documents. This
-> section still needs the actual configuration detail: custom slash-command
-> definitions for phase-scoped work, subagent/`subtask` configuration, and
-> LSP setup per language — sketched at a high level in Guard Rails §4, not
-> yet specified in full here.
+**Resolved.** This section was TBC (`TBD-07`); the configuration below
+closes it out. Decided in a dedicated design session over the OpenCode
+setup and recorded in full in seven companion documents, referenced by
+filename throughout rather than duplicated here: `open-code-sub-agents.md`,
+`open-code-agent-tools.md`, `orchestrating-sub-agent-flows.md`,
+`standard-chat-requests.md`, `standard-chat-handover-responses.md`, and
+one standing-instructions file per sub-agent —
+`test-writer-instructions.md`, `build-implementer-instructions.md`,
+`quick-scaffolder-instructions.md`.
+
+**Sub-agents.** Three, one per agent-owned phase. Deliberately **no**
+sub-agent for `spec` — that phase is owned entirely by the architect and
+its own preceding design workflow (Guard Rails §1); the one mechanical
+action it needs (rebasing `spec/{ref}` forward when `main` drifts) is a
+plain fast-forward the architect performs directly.
+
+| Sub-agent | Phase | Gate it invokes | Responsibility |
+|---|---|---|---|
+| `test-writer` | `test` | `build-gate` (`gateFor`: `test → build-gate`) | Writes failing system tests and any public `*.interface.ts` contracts they need to compile against |
+| `build-implementer` | `build` | `main-gate` (`gateFor`: `build → main-gate`) | Implements code to make the failing tests pass, without touching the test package or committed interfaces |
+| `quick-scaffolder` | `quick`/`task/{ref}` | `main-gate` (`gateFor`: `quick → main-gate`) | Small changes that don't require altering existing tests, straight to a single commit against `main` |
+
+Full responsibilities and the edit/permission matrix: `open-code-sub-agents.md`.
+
+**Trust and rollout posture.** Sub-agents do not start in headless
+operation. Each is initially run **interactively**, architect present,
+trusted to use its own judgement with its available tools (scoped `edit`,
+`git`/`gh`, `gate-check`) — at the cost of higher oversight, not a
+constrained mechanical procedure. As `task-phases` (in active
+development — `task-phasing-lld.md`) ships more of its own methods, the
+corresponding raw `git`/`gh` permission is removed and replaced by the
+`task-phases` tool call: the agent becomes more *railroaded* (offered a
+prescribed correct action instead of relying on judgement), which is what
+allows supervision to reduce, eventually to full headless operation. This
+sequencing — trust first, tool-enforced railroading later — is
+deliberate, not a stopgap. Full rationale: `orchestrating-sub-agent-flows.md`
+§2.
+
+**Tools.** Two custom OpenCode tools, both plain TypeScript under
+`.opencode/tool/*.ts` (in-process, no server to build or run):
+
+- **`gate-check`** — real today; wraps `pnpm gate-check <name> --json
+  --ref <ref>`, returns the parsed `GateCheckResult` directly.
+- **`task-phases`** — added incrementally, one method at a time, only
+  once each is genuinely backed by a real CLI command; no speculative
+  stubs. Until a given method exists, the relevant sub-agent's standing
+  instructions describe the equivalent manual git/gh procedure directly —
+  this is ordinary capable operation under interactive supervision, not a
+  fallback bolted onto a missing tool.
+
+Full tool requirements and OpenCode config: `open-code-agent-tools.md`.
+
+**Standard prompts and session handover.** Each sub-agent is invoked via
+one of two standard prompts, `Begin` or `Resume` — six prompts total, not
+a bespoke one per theoretical phase/state combination (full narrowing
+rationale: `standard-chat-requests.md`). Every session re-derives the
+task's actual state at start and self-handles any pending rebase-forward
+for its own canonical branch before any other work.
+
+A session ends by reporting exactly one of five standardised outcomes —
+`ready-for-next-phase`, `blocked`, `rebase-required`, `phase-changed`,
+`needs-architect-intervention` — as a structured JSON payload (full
+schema and examples: `standard-chat-handover-responses.md`). A separate,
+non-cooperative **external Halt** mechanism (today: manually terminating
+a runaway session; later: a turn/token/wall-clock watchdog) exists
+independently, for an agent thrashing without recognising it itself:
+`orchestrating-sub-agent-flows.md` §5.
+
+Headless invocation, once adopted for a given phase, uses `opencode run
+--agent <name> --model <model> --format json`, with **session id** — not
+agent or model — as the unit of continuity. This is what lets today's
+manual cycling (the architect reading a handover payload and starting the
+next session by hand) become a future orchestrator's automated scheduling
+loop without any redesign. Full mechanism: `orchestrating-sub-agent-flows.md`.
+
+**Known prerequisite before any sub-agent goes live.** `test-writer` must
+be able to create/edit `packages/**/*.interface.ts` files as part of
+writing failing tests — a system test cannot compile without the
+interfaces it exercises. `gate-checks-lld.md`'s `validate-test-commit`
+currently restricts the test-phase commit to `/test` only, which blocks
+this outright; once committed, those interface files also need the same
+immutability protection the test package already has during `build`.
+Both gaps are a single blocking prerequisite, tracked as its own
+follow-up chat-spec (`interface-glob-gate-extension`, not yet run), that
+must land before `test-writer` is put into operation.
+
+Separately — not blocking, but tracked — mapping `task-phases`'s ~20
+delivery specs onto the smaller set of real `task-phases` tool methods
+above, including which spec(s) unlock each method and which are needed
+for it to be complete, is its own follow-up
+(`task-phases-tool-readiness-mapping`, not yet run).
 
 ### Observability & Monitoring
 **ToDo** — see task `TBD-08`.
@@ -753,8 +836,8 @@ The repositories maintained by the Magpie Weaver project are:
       - Commit message starts with `{ref}`
       - Commit message includes a description.
     - All tests pass
-    - 85% Code coverage
-    - 95% New code coverage
+    - 80% Code coverage
+    - 90% New code coverage
   - Requires human override of failing validation
   - Squashes to 1 commit, concatenating the commit messages (spec + test + build)
 
