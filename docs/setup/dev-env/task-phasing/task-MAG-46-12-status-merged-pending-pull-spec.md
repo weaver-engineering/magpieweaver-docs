@@ -24,6 +24,9 @@ is behind `origin/build/{ref}`. Neither case performs any git mutation —
 resolving this state is `promote`-only (MAG-46-14).
 
 ### 2.1 Deliverable Notes For Agent
+- **This extends `lib/repo-state.ts`'s `deriveRepoState()`** (LLD §4.5),
+  same as MAG-46-11's `awaiting-pr` — add `merged-pending-pull` detection
+  there, not as separate logic in `status.ts`.
 - This state's derivation depends on comparing `test/{ref}`'s current HEAD
   against the merged PR's recorded `headRefOid`, not just "a merged PR
   exists" — assert this comparison is actually made, since it's what

@@ -31,8 +31,9 @@ entry is the currently checked-out task.
   phase branch existing, not multiples, to keep this chunk's fixture
   simple; multi-branch-per-ref grouping is implied by MAG-46-06 onward's
   derivation already being ref-scoped, not new logic here.
-- `list` reuses whatever ref-derivation function `status` already calls
-  per ref — this chunk should not duplicate that logic.
+- `list` calls `lib/repo-state.ts`'s `deriveRepoState()` once per ref (LLD
+  §4.5) — the same function `status` calls. Do not duplicate that logic
+  here, and do not add a `list`-specific derivation path.
 
 ## 3. Required Behaviors
 * Lists every ref with an active branch, each with its derived phase/state.
