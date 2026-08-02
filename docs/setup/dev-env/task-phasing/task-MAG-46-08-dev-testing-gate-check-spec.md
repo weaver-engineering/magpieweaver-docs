@@ -76,6 +76,14 @@ mapping and the real `run()` call against actual repository state.
 * Then - the reported value is `"main-gate"`
 
 ### 3.2 run() against a real passing test-gate
+
+**Correction:** the `When` clause originally read `"phase": "test"` — a
+typo. `gateFor` (§3.1) maps `test → build-gate`, not `test-gate`; the
+`Given`/`Then` below describe checking a *completed spec phase's*
+readiness to promote to test (`spec/AAA-001` and `test/AAA-101` both
+existing, validated against `test-gate`'s rules), which is the
+`spec → test-gate` mapping. Fixed to `"phase": "spec"`.
+
 * Given
   * `spec/AAA-001` and `test/AAA-001` both exist, checked out at
     `test/AAA-001`
@@ -85,7 +93,7 @@ mapping and the real `run()` call against actual repository state.
 * When -
   ```bash
   pnpm task --dev-testing gate-check run -i << EOF
-  {"phase": "test", "args": {"ref": "AAA-001"}}
+  {"phase": "spec", "args": {"ref": "AAA-001"}}
   EOF
   ```
 * Then -
