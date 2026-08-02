@@ -34,6 +34,12 @@ earlier chunks deliberately deferred: `init --doc`/`--specs`/`--wip`
   mismatch, optionally committing WIP first.
 
 ### 2.1 Deliverable Notes For Agent
+- **`--doc`/`--specs`/`--wip` extend `lib/task-doc.ts`'s
+  `scaffoldTaskDoc()`** (LLD §4.6) — add the copy-instead-of-template path
+  and multi-spec import there, not as `init.ts`-local branching around the
+  existing call. **`status --fix` reads its target branch from
+  `lib/repo-state.ts`'s `deriveRepoState()`** (already used by `status`'s
+  existing derivation) — it doesn't re-derive the canonical branch itself.
 - These are "helper conveniences, not core requirements" (§3.8) — the
   required behavior in every failure sub-case is "warn and continue," not
   any specific recovery logic; don't over-engineer past that.

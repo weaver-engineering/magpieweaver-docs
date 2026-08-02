@@ -33,6 +33,10 @@ spec at all.
   `test`-phase case (MAG-46-11 §3.3).
 
 ### 2.1 Deliverable Notes For Agent
+- **Extends the same `deriveRepoState()` awaiting-pr resolution
+  MAG-46-11 added to `lib/repo-state.ts`** (LLD §4.5) with the quick
+  route's base/head pair — one derivation function covering all routes,
+  not a parallel quick-route-only check.
 - `gateFor("quick")` already resolves to `"main-gate"` (proven for real in
   MAG-46-08 §3.1) — this chunk's mocked `gateChecks.run` calls should use
   `phase: "quick"`, not `"build"`, even though the destination gate name

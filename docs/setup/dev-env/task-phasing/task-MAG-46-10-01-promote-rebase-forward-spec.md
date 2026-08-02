@@ -34,6 +34,10 @@ trigger and calling it with the right arguments.
   MAG-46-14 §3.3.
 
 ### 2.1 Deliverable Notes For Agent
+- **The staleness/drift detection driving these two triggers lives in
+  `lib/repo-state.ts`'s `deriveRepoState()`** (LLD §4.5, §3.5) — `promote`
+  reacts to what derivation already reports, it doesn't re-check
+  `isAncestor` itself against `spec`/`main` a second time.
 - These two triggers are mutually exclusive per invocation — a single
   `promote` call resolves whichever one derivation actually surfaced, not
   both at once. Cover them as separate fixtures, not a combined one.

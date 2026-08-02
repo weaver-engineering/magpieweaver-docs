@@ -25,6 +25,10 @@ codebase and pass, unmodified, after implementation (fail-then-pass rule).
   the derived canonical branch.
 
 ### 2.1 Deliverable Notes For Agent
+- **`promote`'s derived phase/state/canonicalBranch/branchMismatch come
+  from `lib/repo-state.ts`'s `deriveRepoState()`** (LLD §4.5) — the same
+  function `status` calls, not a private re-derivation. `promote` is a
+  consumer here, not a second implementation.
 - `promote` **always** runs `gateChecks.run` when state is `ready?` —
   unlike `status`, there's no flag gating this; assert it's called
   unconditionally in the ready?-resolution path.
