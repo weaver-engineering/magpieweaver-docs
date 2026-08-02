@@ -27,6 +27,9 @@ primitive was proven in MAG-46-13).
   rewrite in this design.
 
 ### 2.1 Deliverable Notes For Agent
+- **`merged-pending-pull` is read from `lib/repo-state.ts`'s
+  `deriveRepoState()`** (derived in MAG-46-12) — `promote` consumes that
+  state, it doesn't re-check `build/{ref}`'s ancestry itself.
 - The plain-pull case is explicitly **not** automatic on `status`/`list` —
   it still requires an actual `promote` invocation (§3.3) even though it's
   non-destructive; assert `pullFastForward` is never called from a

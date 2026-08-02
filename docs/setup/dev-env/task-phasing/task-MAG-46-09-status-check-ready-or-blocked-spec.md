@@ -24,6 +24,11 @@ double), and the `--ref`+`--check` refusal rule from §3.9.
   `<other-ref>` isn't the currently checked-out task's ref.
 
 ### 2.1 Deliverable Notes For Agent
+- **This extends `lib/repo-state.ts`'s `deriveRepoState()`** (LLD §4.5),
+  not `status.ts` directly — the `ready?` resolution belongs in the shared
+  derivation pipeline so `promote`/`list`/the `<ref>` switch see it too,
+  not just `status`. Modify `deriveState()`'s no-PR branch there; don't
+  fork a parallel resolution path in `status.ts`.
 - `gateChecks.run` must be called with the phase currently derived, not a
   guessed one — assert the exact `phase` argument passed.
 - The `--ref --check` refusal is a **failure with `success: false`**, not a

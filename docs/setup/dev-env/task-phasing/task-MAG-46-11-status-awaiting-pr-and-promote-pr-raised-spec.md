@@ -26,6 +26,12 @@ codebase and pass, unmodified, after implementation (fail-then-pass rule).
   and `promote` is a safe no-op in this state.
 
 ### 2.1 Deliverable Notes For Agent
+- **This replaces `lib/repo-state.ts`'s current `assertNoGatePR()`**,
+  which today unconditionally throws `"not implemented"` the moment any
+  gate PR is found (MAG-46-06.01) — that blanket defer is exactly what
+  this chunk (and MAG-46-11.01/12/15) needs to turn into real derivation.
+  Change `deriveRepoState()` itself; don't add a second PR-aware check
+  inside `status.ts` or `promote.ts` alongside the existing one.
 - `awaiting-pr` is attached to the **source** phase of the open PR (§3.4)
   — assert `phase` stays `"test"`, not something derived from the PR's
   destination.

@@ -24,6 +24,9 @@ optionally committing WIP on the branch being left first when `--wip` is
 given.
 
 ### 2.1 Deliverable Notes For Agent
+- **The canonical branch to switch to comes from `lib/repo-state.ts`'s
+  `deriveRepoState()`** (LLD §4.5) — the same derivation `status`/`list`/
+  `promote` all use, not a fresh lookup built for this command.
 - The ref-matching regex (`/^[A-Z]+-[0-9]+$/`, §2's `TaskRef`) is what lets
   `cli.ts`/`registry.ts` tell `pnpm task AAA-234` apart from a genuine
   subcommand name — assert an input that looks like a subcommand

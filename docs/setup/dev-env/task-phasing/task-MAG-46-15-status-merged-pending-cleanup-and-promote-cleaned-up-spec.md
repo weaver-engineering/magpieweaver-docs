@@ -32,6 +32,10 @@ ordinary route and the interrupted-cleanup retrigger), and
 - After cleanup, the same ref reports `not-initialised` again.
 
 ### 2.1 Deliverable Notes For Agent
+- **`merged-pending-cleanup` detection extends `lib/repo-state.ts`'s
+  `deriveRepoState()`** (LLD §4.5), same as MAG-46-11/12's states —
+  `promote`'s `cleaned-up` action consumes the derived state, it doesn't
+  duplicate the merged/ancestor checks itself.
 - The interrupted-cleanup retrigger (branch survives as an ancestor of
   `main`) must resolve to the same `merged-pending-cleanup` state and the
   same `cleaned-up` action as the ordinary route — assert both fixtures
