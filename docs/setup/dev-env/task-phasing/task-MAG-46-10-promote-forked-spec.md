@@ -17,7 +17,7 @@ codebase and pass, unmodified, after implementation (fail-then-pass rule).
 
 ## 2. Deliverable
 - `promote`, finding `spec/{ref}` in state `ready` (resolving `ready?` via
-  `gateChecks.run` itself, always, per §3.2), creates and checks out
+  `resolveReady()` unconditionally, per §3.2), creates and checks out
   `test/{ref}` from `spec/{ref}`.
 - `promote`, finding `spec/{ref}` `blocked`, takes no git action and relays
   the gate's own violations.
@@ -29,14 +29,23 @@ codebase and pass, unmodified, after implementation (fail-then-pass rule).
   from `lib/repo-state.ts`'s `deriveRepoState()`** (LLD §4.5) — the same
   function `status` calls, not a private re-derivation. `promote` is a
   consumer here, not a second implementation.
-- `promote` **always** runs `gateChecks.run` when state is `ready?` —
-  unlike `status`, there's no flag gating this; assert it's called
-  unconditionally in the ready?-resolution path.
+- **Resolution is `resolveReady()`, not a direct `gateChecks.run` call —
+  the exact function MAG-46-09 built for this.** `promote` calls
+  `deriveRepoState()`, then **unconditionally** calls
+  `resolveReady(tools, taskStatus)` (`lib/repo-state.ts`, already
+  exported) — the same function `status.ts` calls only when `--check` is
+  given. Do not call `tools.gateChecks.run` directly here: `resolveReady`
+  is the only place that knows how to populate `TaskStatus.gate.name`/
+  `gate.enforced` (the phase → gate table is a private, unexported
+  constant inside `repo-state.ts` for exactly this reason) — reaching
+  into `gateChecks.run` directly would mean reimplementing that mapping
+  from scratch, or silently never populating `gate` at all. Assert
+  `gateChecks.run` was called (via the mock) to confirm resolution
+  happened, but the call your own code makes is to `resolveReady`.
 - `git.push` for the newly-forked `test/{ref}` is **not** part of this
   action per §3.11's example output (`Create and checkout new branch` is
-  the only step shown) — don't assert a push here unless the LLD's own
-  promote-from-spec example is re-checked; if in doubt, flag rather than
-  assert.
+  the only step shown) — the branch is pushed for the first time when
+  the *next* phase's own work is committed, not here.
 
 ## 3. Required Behaviors
 * `promote` on a ready spec phase creates `test/{ref}` off `spec/{ref}` and
@@ -53,13 +62,20 @@ codebase and pass, unmodified, after implementation (fail-then-pass rule).
 * When - `pnpm task promote`
 * Then -
   * `git.createBranch("test/AAA-123", "spec/AAA-123")` was called
-  * `git.checkout("test/AAA-123")` was called (or `createBranch` itself
-    leaves it checked out, per §4.8's own docstring — assert whichever the
-    implementation actually does, but assert the end state: current branch
-    is `test/AAA-123`)
+  * `git.checkout` was **not** called separately — `createBranch` is
+    `git checkout -b <newBranch> <fromRef>` (LLD §4.8), which already
+    leaves `test/AAA-123` checked out
   * `PromoteCommandResult.action` is `"forked"`
-  * A re-derived status afterward reports `phase: "test"`,
-    `state: "not-started"`
+  * A re-derived status afterward reports `phase: "test"`, `state:
+    "ready?"` — **not** `"not-started"`: `test/AAA-123` is forked
+    directly off `spec/AAA-123`, which already has commits beyond `main`
+    (that's why it was `ready?` to begin with), so `test/AAA-123`
+    inherits those same commits. `hasCommitsBeyond("test/AAA-123",
+    "main")` is `true` from the moment it's created — `not-started`
+    would only apply to a branch with zero commits beyond its parent,
+    which this isn't. Mock `git.hasCommitsBeyond`/`git.headCommitTitle`
+    for `test/AAA-123` to mirror `spec/AAA-123`'s own (non-WIP) values
+    to simulate this correctly.
   * Exit code 0
 
 ### 3.2 Blocked spec phase performs no action
