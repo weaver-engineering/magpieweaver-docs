@@ -406,6 +406,31 @@ pnpm task <ref> [--wip [title] [message]] [--json]
     code 1) rather than silently running `gate-check` against the wrong task's files.
 * `--confirm-rebase` on promote allows headless rebase spec -> test or test -> build
 
+**Branch-restoration invariant: a command leaves the worktree on the same
+branch it found it on.** The only exceptions are the commands whose
+declared purpose is to switch — `<ref>` (§3.13) and `status --fix`
+(§3.9) — which report where they moved to in `switchedFrom`/`switchedTo`.
+Every other command restores the starting branch before returning, even
+when it created or advanced another branch on the way. `wip` already
+works this way (§3.12, "never switches branches"); `promote`'s
+spec→test fork must too (§3.11).
+
+This is not a stylistic preference. The dev machine runs one clone with
+several linked worktrees (`architect`, `agent_1`) sharing a single ref
+namespace, and **git allows a branch to be checked out in only one
+worktree at a time**:
+
+```
+fatal: 'test/AAA-123' is already checked out at '.../architect'
+```
+
+A command that silently leaves the caller parked on a branch it created
+hands that branch to the wrong worktree and locks every other worktree
+out of it. Restoring the starting branch also keeps each worktree on the
+branch its owner is responsible for — the architect on `spec/{ref}`, the
+agent on its own phase branch — which is what makes concurrent work
+across worktrees safe at all.
+
 
 ## 3. Design Notes
 
@@ -499,6 +524,28 @@ if state == ready? and the invoking command is `promote` or `status --check`
         this phase's destination gate (3.7). Every other invocation
         (plain `status`, `list`) reports `ready?` as-is, unresolved.
 ```
+
+**`not-started | work-in-progress | ready?` is derived against the
+phase's own parent branch, not against `main` (MAG-46-10).** A phase is
+`not-started` when it carries no commit *of its own*, so the comparison
+is with the branch it forked from:
+
+| Phase   | Parent branch to derive against |
+|---------|---------------------------------|
+| `spec`  | `origin/main`                   |
+| `test`  | `spec/{ref}`                    |
+| `build` | `origin/build/{ref}`            |
+| `quick` | `origin/main`                   |
+
+This is the same parent each destination gate already counts against
+(§3.7) — `test-gate` wants `test/{ref}` exactly one commit beyond
+`spec/{ref}` — so derivation and the gates agree on what a phase's work
+is. Deriving every phase against `main` instead measures the *task's*
+total progress and reports it as the *phase's* state: a freshly forked
+`test/{ref}` would report `ready?` on the strength of the spec commit
+alone, and `promote` would then run `build-gate` against a branch with
+nothing to gate. Note this is a different question from the ancestry
+checks above, which are staleness-only (§3.5) and unaffected.
 
 Whichever branch triggers the interrupted-cleanup retrigger, the reported
 phase is the same as the top-level `merged-pending-cleanup` case (`build`
@@ -750,6 +797,19 @@ Gates are named `<destination>-gate`:
 | `build/{ref}` | `main`        | `main-gate`  | Yes                                                        |
 | `task/{ref}`  | `main`        | `main-gate`  | Yes (same gate, different inbound-commit-count validation) |
 
+**Correction: the Main Gate PR is raised from `ready/{ref}`, not from
+`build/{ref}`.** `build/{ref}` is branch-protected and only ever receives
+the Build Gate PR merge, so the build phase's own commit cannot be pushed
+back through it. The build commit goes on `ready/{ref}`, forked from
+`build/{ref}`, and that is what the Main Gate PR is raised from — the
+`From` column above should read `ready/{ref}` for the `main-gate` row,
+and `main-gate`'s "rejects any PR whose source isn't `build/{ref}` or
+`task/{ref}`" below should read `ready/{ref}` or `task/{ref}`.
+`ready/{ref}` is a fourth phase-branch prefix and needs adding to
+`PHASE_PREFIXES` in `lib/repo-state.ts` and `commands/status.ts`;
+without it, `status` on a `ready/{ref}` branch derives no ref and reports
+`not-initialised`.
+
 `main-gate` rejects any PR whose source isn't `build/{ref}` or
 `task/{ref}`.
 
@@ -762,6 +822,19 @@ be the gap in the guard rail. So: `promote` **blocks** on a failing
 `test-gate` result exactly as it does for `build-gate`/`main-gate` — the
 only sense in which `test-gate` is "not enforced" is that GitHub itself
 isn't the one enforcing it; this tool is.
+
+**Correction (MAG-46-11): the paragraph below is wrong and must not be
+applied.** It assumes `build/{ref}` forks from `spec/{ref}`. It doesn't —
+`build/{ref}` is created from `origin/main` and starts empty, so that the
+Build Gate PR's diff carries both the spec and the test commit and
+satisfies `build-gate`'s "exactly 2 commits" rule (MAG-46-11 §2.1).
+Squash-merging that PR collapses the two into one commit on
+`build/{ref}`, leaving the build phase's branch 2 commits ahead of `main`
+instead of 3, and `main-gate`'s "exactly 3 commits" rule then fails.
+**The Build Gate PR must be rebase-merged**, and "Rebase and merge" must
+stay *enabled* for this transition. The `{ref}`-prefixed-commit-message
+discipline described below still applies. Retained unedited for the
+decision history:
 
 **Required GitHub configuration: the Build Gate PR (`test/{ref}` →
 `build/{ref}`) must be merged via "Squash and merge" only** — "Create a
@@ -1294,7 +1367,8 @@ Evaluating task status...
  - Status of task `AAA-123` in phase `spec` is `ready`.  
  
 Promoting AAA-123::spec::ready...
-  - Create and checkout new branch `test/AAA-123` from `spec/AAA-123` - OK.
+  - Create new branch `test/AAA-123` from `spec/AAA-123` - OK.
+  - Restore starting branch `spec/AAA-123` - OK.
   
 Evaluating task status...
  - Evaluating phase of `AAA-123`...
@@ -1307,10 +1381,13 @@ Evaluating task status...
  - Evaluating status of task `AAA-123` in phase `test`...
    - Branch `spec/AAA-123` is ancestor of `test/AAA-123` => not-stale
    - No work in progress
-   - No commit
+   - No commit beyond `spec/AAA-123`
  - Status of task `AAA-123` in phase `test` is `not-started`
+ - Branch mismatch: canonical `test/AAA-123`, checked out `spec/AAA-123`
+   (expected - the branch-restoration invariant, 2.1; whichever worktree
+   takes the test phase checks `test/AAA-123` out)
 
-Current branch `test/AAA-123` - ref: `AAA-123`
+Current branch `spec/AAA-123` - ref: `AAA-123`
 ----------------------------------------------
 Exit Code: 0 - SUCCESS
 Current Task State
@@ -1426,8 +1503,8 @@ Evaluating task status...
  - Status of task `AAA-123` in phase `build` is `ready`.
 
 Promoting AAA-123::build::ready... 
-  - Push `build/AAA-123` -> `origin/main/AAA-123`
-  - Raising PR `origin/main/AAA-123` -> `origin/main` - "Implementation of AAA-123"...
+  - Push `build/AAA-123` -> `origin/ready/AAA-123`
+  - Raising PR `origin/ready/AAA-123` -> `origin/main` - "Implementation of AAA-123"...
     - Raise PR - PR #46 raised - OK
   - Main Gate PR raised for task `AAA/123` - OK
   
@@ -1872,7 +1949,9 @@ interface GitTool {
   createBranch(newBranch: string, fromRef: string): Promise<void>;
 
   /** `git checkout <branch>` — switches to an already-existing branch
-   * (§3.9's `--fix`; §3.13's `<ref>` switch). */
+   * (§3.9's `--fix`; §3.13's `<ref>` switch; and restoring the starting
+   * branch after `promote`'s fork, per §2.1's branch-restoration
+   * invariant). */
   checkout(branch: string): Promise<void>;
 
   /** `git add -A && git commit -m "<title>" -m "<message>"`, then
