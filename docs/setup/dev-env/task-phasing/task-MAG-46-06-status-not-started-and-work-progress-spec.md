@@ -17,16 +17,32 @@ case where a phase branch exists but no gate PR has ever been raised —
 against injected `git`/`github` test doubles.
 
 ## 2. Deliverable
+
+**Correction (post-MAG-46-09):** this deliverable originally described
+`work-in-progress` as "commits exist, none of them a WIP-marked commit" —
+written before `ready?`'s own reachability condition (MAG-46-09) was
+specified in enough detail to see the conflict. `deriveState()` is one
+shared function with no ref-specific branching: it cannot report
+`work-in-progress` for one non-WIP-marked branch and `ready?` for
+another. MAG-46-09 correctly establishes the real rule — commits exist,
+no WIP marker, no PR raised → `ready?`, not `work-in-progress` —
+`work-in-progress`'s non-WIP case below was only ever this chunk's
+placeholder, standing in until MAG-46-09 landed. §3.2/§3.4/§3.5's
+`Then` clauses are corrected below to `ready?`; only §3.7 (genuinely
+WIP-marked) was ever actually about `work-in-progress` and is
+unaffected.
+
 `status` distinguishes `not-started` (branch exists, no commits beyond its
-parent) from `work-in-progress` (commits exist, none of them a WIP-marked
-commit) for both `spec/{ref}` (normal route) and `task/{ref}` (quick
-route). Also covers three related derivation behaviors surfaced by
-system-behaviors review as needing their own coverage here rather than
-only being exercised indirectly by `promote`: the ancestry-staleness
-fallback (§3.2's closing rule), the `branchMismatch` field itself, and a
-WIP-marked head commit correctly holding derivation at
-`work-in-progress` rather than reaching `ready?`. `ready?`/`ready`/
-`blocked` resolution itself is out of scope here (MAG-46-09).
+parent) from `ready?` (commits exist, none of them a WIP-marked commit) —
+see the Correction above — for both `spec/{ref}` (normal route) and
+`task/{ref}` (quick route). Also covers three related derivation
+behaviors surfaced by system-behaviors review as needing their own
+coverage here rather than only being exercised indirectly by `promote`:
+the ancestry-staleness fallback (§3.2's closing rule), the
+`branchMismatch` field itself, and a WIP-marked head commit correctly
+holding derivation at `work-in-progress` rather than reaching `ready?`.
+`ready?`→`ready`/`blocked` resolution itself is out of scope here
+(MAG-46-09) — this chunk only needs `ready?` to be *reachable*.
 
 ### 2.1 Deliverable Notes For Agent
 - `hasCommitsBeyond` and `headCommitTitle` are the two `GitTool` methods
@@ -42,7 +58,7 @@ WIP-marked head commit correctly holding derivation at
 * No PR (merged or open) exists, and the phase branch has no commits beyond
   `main` → `not-started`.
 * No PR exists, and the phase branch has commits, none titled with `WIP` →
-  `work-in-progress`.
+  `ready?` (see the Correction above).
 * Both cases work identically for `spec/{ref}` and `task/{ref}`.
 * `test/{ref}` exists but `spec/{ref}` is not its ancestor (spec amended
   after test forked) → derivation falls back to reporting `phase: "spec"`,
@@ -75,7 +91,8 @@ WIP-marked head commit correctly holding derivation at
 * When - `pnpm task status --ref AAA-002`
 * Then -
   * The reported `phase` is `"spec"`
-  * The reported `state` is `"work-in-progress"`
+  * The reported `state` is `"ready?"` (Correction above — no WIP marker,
+    no PR raised)
 
 ### 3.3 task/{ref} (quick route), not-started
 * Given
@@ -95,7 +112,8 @@ WIP-marked head commit correctly holding derivation at
 * When - `pnpm task status --ref AAA-004`
 * Then -
   * The reported `phase` is `"quick"`
-  * The reported `state` is `"work-in-progress"`
+  * The reported `state` is `"ready?"` (Correction above — no WIP marker,
+    no PR raised)
 
 ### 3.5 Ancestry-staleness fallback: spec amended after test forked
 * Given
@@ -113,7 +131,8 @@ WIP-marked head commit correctly holding derivation at
 * Then -
   * The reported `phase` is `"spec"` — **not** `"test"`, even though
     `test/AAA-006` exists
-  * The reported `state` is `"work-in-progress"`
+  * The reported `state` is `"ready?"` (Correction above — no WIP marker,
+    no PR raised)
   * `git.hasCommitsBeyond`/`headCommitTitle` were called against
     `spec/AAA-006`, never against `test/AAA-006` — confirming `test/{ref}`
     genuinely wasn't consulted, not merely that the right phase happened
