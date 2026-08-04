@@ -115,6 +115,61 @@ So, three tiers, not two:
    genuine one-off under time pressure, not a pattern to reach for by
    default. In hindsight, `isAncestor` fit tier 2 better than tier 3.
 
+### Where the tier gets chosen: at sequencing time, not discovery time
+
+**The three tiers only work if the choice is made when the backlog is
+chunked and sequenced — not discovered reactively mid-build.** That is
+the actual difference between how MAG-46-05.01 happened and how
+`isAncestor` happened. Both were the same situation (a chunk needs a
+shim method that isn't real yet); 05.01 was noticed while scoping and
+got its own deliberate cycle, `isAncestor` was noticed by a crash in
+production code that had already merged, and got an emergency fix.
+
+So the check belongs in the design → chunk → sequence workflow, as a
+step with a name:
+
+- **When chunking:** for each spec chunk, enumerate the shim methods its
+  logic will actually reach at runtime — not just the ones its own tests
+  will mock. The mocked-test blind spot described above is precisely why
+  "what does this chunk call?" cannot be answered from the chunk's own
+  test plan.
+- **When sequencing:** for each such method that isn't real yet, pick
+  its tier and place it in the order *before* the chunk that needs it.
+  A tier-1 dev-testing chunk becomes a numbered entry in the backlog; a
+  tier-2 quick-route task becomes a queued `task/{ref}`; tier 3 is not
+  planned for, by definition.
+- **At pre-handoff spec review:** re-run the same check as a backstop,
+  since a chunk's spec often gains new implementation detail (Deliverable
+  Notes) after the original sequencing pass. This is the last point at
+  which the answer is still cheap.
+
+Sequencing MAG-46 got this wrong in a specific, avoidable way:
+`mergeBase`/`isAncestor`/`rebase` were all deferred to MAG-46-13, but
+several chunks *before* 13 in the running order reach them through
+`deriveRepoState()` — a shared code path none of those chunks' specs
+mention. The dependency was real and knowable at sequencing time; nothing
+in the process asked the question.
+
+### Scope note: this belongs to "the loom", not to Magpie Weaver
+
+`gate-checks` and `task-phases` — and this note, and the process it
+describes — are not really part of Magpie Weaver. They are tooling for
+**weaver-engineering's "loom"** (working name): the support an architect
+needs to do agentic software development effectively — "weaving". The
+need for both packages was exposed by attempting to build Magpie Weaver
+agentically; they live in the `magpie-weaver` repo today only because
+that is where the need surfaced.
+
+Both are expected to move to their own repo and project (`the-loom`,
+name to be confirmed). Worth keeping in mind when reading anything in
+this note or its siblings: the *lessons* are about agentic development
+practice generally, not about Magpie Weaver's own domain, and should
+survive the move intact. Where a lesson is stated in terms of
+`task-phases`' specifics (`deps/*.ts`, `build-implementer`, the
+spec → test → build gate model), the underlying principle is the general
+one — a thin shim over an external dependency, an agent role that cannot
+write its own tests, a phase gate that measures coverage.
+
 > Original recommendation, superseded by the above — kept for the
 > decision history, not currently in effect:
 >
