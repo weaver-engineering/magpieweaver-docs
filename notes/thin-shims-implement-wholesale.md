@@ -80,6 +80,96 @@ dev-testing test, `build-implementer` makes it pass — for roughly the
 same cost as adding the method inline, just routed through the phase
 that's actually allowed to write the test.
 
+**Addendum (2026-08-04, later the same day): a third tier, for when
+formal dev-testing coverage genuinely isn't practical.** Some shim
+methods are thin enough — a single exit-code check, a trivial
+pass-through — that a dedicated spec → test → build cycle is
+disproportionate, but they still deserve better than an ad-hoc bolt-on
+into an unrelated chunk's build commit. For these, use the **quick route**
+(`task/{ref}` → `main`, `quick-scaffolder`) to implement the method on its
+own, and substitute a full manual end-to-end test (a real disposable
+branch, the real built CLI, real assertions on the outcome — the same
+shape as the architect's own e2e verification throughout MAG-46) for the
+missing automated test. Record what the manual verification covered in
+the task doc, so there's still a durable trail even without an automated
+test — "manually tested" with no record of what was checked is not
+falsifiable six months later.
+
+This isn't a cost-cutting shortcut on the same footing as the ad-hoc
+bolt-on it replaces — it's structurally cleaner. `deps/*.ts` is excluded
+from coverage measurement entirely (see above), so a quick-route commit
+that touches only a shim method sails through `main-gate`'s coverage
+check with zero new lines even reaching the denominator: no architect
+coverage-override needed at all, unlike the one-off used for
+`isAncestor`. It also gets its own task doc and its own reviewable PR,
+rather than riding along inside a chunk it has nothing to do with.
+
+So, three tiers, not two:
+1. **Dedicated dev-testing chunk** (spec → test → build, MAG-46-05.01's
+   precedent) — when the primitive is complex or risky enough to warrant
+   durable automated coverage.
+2. **Quick route + documented manual verification** (this addendum) —
+   when formal automated testing isn't practical, but the method still
+   deserves its own scoped, reviewable, documented change.
+3. **Ad-hoc override** (what actually happened with `isAncestor`) — a
+   genuine one-off under time pressure, not a pattern to reach for by
+   default. In hindsight, `isAncestor` fit tier 2 better than tier 3.
+
+### Where the tier gets chosen: at sequencing time, not discovery time
+
+**The three tiers only work if the choice is made when the backlog is
+chunked and sequenced — not discovered reactively mid-build.** That is
+the actual difference between how MAG-46-05.01 happened and how
+`isAncestor` happened. Both were the same situation (a chunk needs a
+shim method that isn't real yet); 05.01 was noticed while scoping and
+got its own deliberate cycle, `isAncestor` was noticed by a crash in
+production code that had already merged, and got an emergency fix.
+
+So the check belongs in the design → chunk → sequence workflow, as a
+step with a name:
+
+- **When chunking:** for each spec chunk, enumerate the shim methods its
+  logic will actually reach at runtime — not just the ones its own tests
+  will mock. The mocked-test blind spot described above is precisely why
+  "what does this chunk call?" cannot be answered from the chunk's own
+  test plan.
+- **When sequencing:** for each such method that isn't real yet, pick
+  its tier and place it in the order *before* the chunk that needs it.
+  A tier-1 dev-testing chunk becomes a numbered entry in the backlog; a
+  tier-2 quick-route task becomes a queued `task/{ref}`; tier 3 is not
+  planned for, by definition.
+- **At pre-handoff spec review:** re-run the same check as a backstop,
+  since a chunk's spec often gains new implementation detail (Deliverable
+  Notes) after the original sequencing pass. This is the last point at
+  which the answer is still cheap.
+
+Sequencing MAG-46 got this wrong in a specific, avoidable way:
+`mergeBase`/`isAncestor`/`rebase` were all deferred to MAG-46-13, but
+several chunks *before* 13 in the running order reach them through
+`deriveRepoState()` — a shared code path none of those chunks' specs
+mention. The dependency was real and knowable at sequencing time; nothing
+in the process asked the question.
+
+### Scope note: this belongs to "the loom", not to Magpie Weaver
+
+`gate-checks` and `task-phases` — and this note, and the process it
+describes — are not really part of Magpie Weaver. They are tooling for
+**weaver-engineering's "loom"** (working name): the support an architect
+needs to do agentic software development effectively — "weaving". The
+need for both packages was exposed by attempting to build Magpie Weaver
+agentically; they live in the `magpie-weaver` repo today only because
+that is where the need surfaced.
+
+Both are expected to move to their own repo and project (`the-loom`,
+name to be confirmed). Worth keeping in mind when reading anything in
+this note or its siblings: the *lessons* are about agentic development
+practice generally, not about Magpie Weaver's own domain, and should
+survive the move intact. Where a lesson is stated in terms of
+`task-phases`' specifics (`deps/*.ts`, `build-implementer`, the
+spec → test → build gate model), the underlying principle is the general
+one — a thin shim over an external dependency, an agent role that cannot
+write its own tests, a phase gate that measures coverage.
+
 > Original recommendation, superseded by the above — kept for the
 > decision history, not currently in effect:
 >
