@@ -8,7 +8,7 @@ research turned up when we asked how hard it would be to fix that
 ourselves, since a real answer requires understanding OpenCode's own
 codebase, not just its docs.
 
-Scope note (see `notes/thin-shims-implement-wholesale.md` for the fuller
+Scope note (see `notes/design-workflow-findings.md` for the fuller
 version of this point): this is loom research, not Magpie Weaver work.
 It lives here only because MAG-46 is where the need surfaced.
 
