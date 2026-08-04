@@ -46,7 +46,7 @@ deferred to a later chunk through a shared code path (`deriveRepoState`)
 that no chunk's spec mentions.
 
 The lesson generalised into a three-tier decision (see
-`notes/thin-shims-implement-wholesale.md`), and — importantly — into
+`notes/design-workflow-findings.md`, Finding 1), and — importantly — into
 *when* the decision gets made: at chunk/sequence time, with pre-handoff
 review as a backstop. The difference between MAG-46-05.01 (noticed while
 scoping, got its own clean cycle) and `isAncestor` (noticed by a crash in

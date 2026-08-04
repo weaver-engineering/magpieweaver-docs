@@ -46,8 +46,15 @@ and the actual current code, and check:
   yet?** Mocked tests will not tell you — they mock the whole boundary.
   Trace the real call path. If it reaches a stub, decide the tier now
   (dedicated dev-testing chunk / quick-route + manual verification) and
-  sequence it *before* this chunk. See
-  `notes/thin-shims-implement-wholesale.md`.
+  sequence it *before* this chunk. See `notes/design-workflow-findings.md`
+  (Finding 1).
+- **Does this chunk need a new method on an already-implemented interface?**
+  An agent's own addition must be a standalone extension, never an edit to
+  a member the real implementation already satisfies — see
+  `notes/design-workflow-findings.md` (Finding 2). If the need is visible
+  now, at design time, schedule a quick-scaffold task to extend the
+  interface with a stub *before* handoff, rather than leaving the agent to
+  discover it mid-session.
 - **Does the spec assume a chunk that hasn't landed yet?** Backlog order
   and the LLD's assumed order can differ.
 - **Does any git operation move the worktree?** `createBranch` is
