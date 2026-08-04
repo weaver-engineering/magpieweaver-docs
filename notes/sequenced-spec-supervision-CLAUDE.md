@@ -39,9 +39,25 @@ This has caught a real, load-bearing defect in **every** chunk it has
 been applied to. Budget real time for it. Read the spec against the LLD
 and the actual current code, and check:
 
-- **Does the spec contradict already-merged code or tests?** Frozen test
-  files are immutable; a spec that requires changing one is a defect in
-  the spec.
+- **Does the spec contradict an already-merged test's specific
+  assertion?** This is not the same check as the shim-dependency one
+  below, and staying abstract about it isn't enough — it has slipped
+  past this exact review twice (spec 09, spec 11) by staying a vague
+  "keep an eye out" rather than a concrete step. Do this mechanically:
+  for every `Given`/`Then` pair in the new spec, grep the existing test
+  suite for a test whose `Given` sets up the same scenario (same branch
+  state, same PR state, same mocked inputs) and check whether its `Then`
+  asserts something different. This is especially likely wherever the
+  code has a comment admitting a behavior is temporary (e.g.
+  `assertNoGatePR`'s own docstring: "until they land, an existing PR
+  means the caller cannot answer authoritatively") — that admission is a
+  promise that some future spec will need to contradict this exact test,
+  and the new spec claiming to be that future chunk is exactly when to
+  check. Frozen test files are immutable; a spec that requires changing
+  one is a defect in the spec, resolved by revising the test (architect
+  override or quick route, whichever `main-gate`'s actual check for the
+  target branch requires) before handoff, not discovered by the agent
+  mid-session.
 - **Does this chunk's logic reach a shim method that isn't implemented
   yet?** Mocked tests will not tell you — they mock the whole boundary.
   Trace the real call path. If it reaches a stub, decide the tier now
