@@ -80,6 +80,41 @@ dev-testing test, `build-implementer` makes it pass — for roughly the
 same cost as adding the method inline, just routed through the phase
 that's actually allowed to write the test.
 
+**Addendum (2026-08-04, later the same day): a third tier, for when
+formal dev-testing coverage genuinely isn't practical.** Some shim
+methods are thin enough — a single exit-code check, a trivial
+pass-through — that a dedicated spec → test → build cycle is
+disproportionate, but they still deserve better than an ad-hoc bolt-on
+into an unrelated chunk's build commit. For these, use the **quick route**
+(`task/{ref}` → `main`, `quick-scaffolder`) to implement the method on its
+own, and substitute a full manual end-to-end test (a real disposable
+branch, the real built CLI, real assertions on the outcome — the same
+shape as the architect's own e2e verification throughout MAG-46) for the
+missing automated test. Record what the manual verification covered in
+the task doc, so there's still a durable trail even without an automated
+test — "manually tested" with no record of what was checked is not
+falsifiable six months later.
+
+This isn't a cost-cutting shortcut on the same footing as the ad-hoc
+bolt-on it replaces — it's structurally cleaner. `deps/*.ts` is excluded
+from coverage measurement entirely (see above), so a quick-route commit
+that touches only a shim method sails through `main-gate`'s coverage
+check with zero new lines even reaching the denominator: no architect
+coverage-override needed at all, unlike the one-off used for
+`isAncestor`. It also gets its own task doc and its own reviewable PR,
+rather than riding along inside a chunk it has nothing to do with.
+
+So, three tiers, not two:
+1. **Dedicated dev-testing chunk** (spec → test → build, MAG-46-05.01's
+   precedent) — when the primitive is complex or risky enough to warrant
+   durable automated coverage.
+2. **Quick route + documented manual verification** (this addendum) —
+   when formal automated testing isn't practical, but the method still
+   deserves its own scoped, reviewable, documented change.
+3. **Ad-hoc override** (what actually happened with `isAncestor`) — a
+   genuine one-off under time pressure, not a pattern to reach for by
+   default. In hindsight, `isAncestor` fit tier 2 better than tier 3.
+
 > Original recommendation, superseded by the above — kept for the
 > decision history, not currently in effect:
 >
