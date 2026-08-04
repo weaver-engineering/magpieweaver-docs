@@ -9,9 +9,19 @@ codebase and pass, unmodified, after implementation (fail-then-pass rule).
 
 **Test file:** §3.1–3.3 (`promote`) →
 `test/packages/task-phases/promote/quick-route-pr-raised.test.ts`; §3.4
-(`status`) adds a case to the existing
-`test/packages/task-phases/status/awaiting-pr.test.ts` from MAG-46-11 —
-not a new file, per `task-MAG-46-test-file-layout-design.md` §5.
+(`status`) →
+`test/packages/task-phases/status/awaiting-pr-quick-route.test.ts`.
+
+**Correction (2026-08-04):** §3.4 originally directed adding a case to
+the existing `status/awaiting-pr.test.ts` from MAG-46-11, per what was
+then `task-MAG-46-test-file-layout-design.md` §5. Wrong: §5 governs a
+spec doc gaining sections within *itself* later, not a distinct
+follow-on chunk like this one — an ordinary §4 split-by-command case,
+same treatment as §3.1–3.3 above. `test-writer` caught it at session
+start: the "existing file" directive is incompatible with both
+`build-gate`'s `validate-test-commit` check and every agent's own
+standing mandate against editing existing test files. See the layout
+doc's own correction note for the fuller reasoning.
 
 ## 1. Interface Under Test
 `pnpm task promote [--json]`, covering the quick route's own `ready →

@@ -79,11 +79,27 @@ Given/When/Then block's `When -` line**:
 | MAG-46-11 | §3.1, §3.3 (`promote` raises/re-reports the PR) | `promote/pr-raised.test.ts` |
 | MAG-46-11 | §3.2, §3.4 (`status` reports `awaiting-pr`) | `status/awaiting-pr.test.ts` |
 | MAG-46-11.01 | §3.1–3.3 (`promote` on the quick route) | `promote/quick-route-pr-raised.test.ts` |
-| MAG-46-11.01 | §3.4 (`status` on the quick route) | *adds a case to* `status/awaiting-pr.test.ts` |
+| MAG-46-11.01 | §3.4 (`status` on the quick route) | `status/awaiting-pr-quick-route.test.ts` |
 | MAG-46-15 | §3.1, §3.2 (`status` derives the state) | `status/merged-pending-cleanup.test.ts` |
 | MAG-46-15 | §3.3–3.6 (`promote` performs cleanup) | `promote/cleaned-up.test.ts` |
 | MAG-46-18 | §3.1–3.5 (`init` flag variants) | `init/flag-variants.test.ts` |
 | MAG-46-18 | §3.6–3.7 (`status --fix`) | `status/fix.test.ts` |
+
+**Correction (2026-08-04):** the MAG-46-11.01 §3.4 row above originally
+read *"adds a case to `status/awaiting-pr.test.ts`"*, treating it as a §5
+gap-closing patch. That was wrong: §5 governs a spec doc gaining sections
+*within itself* later (MAG-46-06's own §3.5–3.7 growth is the actual
+example). MAG-46-11.01 is a distinct, later spec doc that happens to
+share MAG-46-11's territory — an ordinary §4 split-by-command case, same
+as its own §3.1–3.3 row directly above, which already correctly named a
+new file. Caught by `test-writer` at session start for MAG-46-11.01: the
+"existing file" directive is incompatible with both the gate
+(`validate-test-commit` forbids modifying `test/**`) and every agent's
+own standing mandate against editing existing test files — a conflict
+that only surfaces at the point a *second* chunk's tests target a file a
+*prior, already-merged* chunk created, which the original table row
+didn't consider. Corrected to `status/awaiting-pr-quick-route.test.ts`,
+a new file, matching the sibling row's treatment.
 
 **One exception to the split-by-command rule:** a trailing Given/When/Then
 that only re-checks state via `status` to confirm another command's side
