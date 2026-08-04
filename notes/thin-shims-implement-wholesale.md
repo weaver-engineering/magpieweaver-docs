@@ -1,5 +1,13 @@
 ## Thin shims over external dependencies should be implemented in one go
 
+**Correction (2026-08-04): the title's conclusion is wrong and has been
+superseded — see "What to change going forward" below.** Building the
+whole shim upfront trades a real problem (this incident) for a worse one
+(speculative code for methods that may never be needed), directly against
+this project's own incremental-delivery philosophy. Kept in place,
+annotated, per this repo's convention — not deleted — because the
+incident and diagnosis below are still accurate; only the fix changed.
+
 **Context:** `@magpieweaver/task-phases`'s `GitTool` (`deps/git.ts`) is a
 thin wrapper over the `git` CLI. It was built incrementally, chunk by
 chunk, each one implementing only the methods its own spec's tests
@@ -37,19 +45,53 @@ implemented, or still a stub owned by a later chunk."
 
 ### What to change going forward
 
-- **When scoping spec chunks for a new external-dependency wrapper**
-  (a CLI tool, an SDK, a REST client, a filesystem abstraction), prefer
-  one early chunk that implements the entire interface for real, with
-  real dev-testing coverage for every method — even the ones no other
-  chunk needs yet — over spreading it thin across many chunks keyed to
-  individual callers' immediate needs. The extra up-front cost is small
-  (these are thin shims, not real subsystems) and it removes a whole
-  class of "passes every test, crashes for real" surprise.
-- If a shim is deferred anyway, treat every other chunk's use of that
-  shim as a standing risk until the deferred chunk lands, not just the
-  deferred chunk's own listed dependents — `promote` wasn't the chunk
-  MAG-46-13 was scoped around, but it needed `isAncestor` regardless,
-  through a shared code path nobody had traced end to end.
+The original per-chunk-builds-what-it-needs approach was the right call
+— it matches this project's incremental delivery of system-level
+behavior, and building unneeded methods speculatively is real waste, not
+free insurance. What was actually missing wasn't upfront breadth; it was
+two things: a way to *notice*, at spec time, when a chunk depends on a
+shim method that isn't real yet, and — the harder part — a way to make
+sure implementing it produces real *test coverage*, not just
+correctness.
+
+That second part is why simply telling a chunk "implement what you need"
+isn't enough on its own. `deps/*.ts` is excluded from coverage
+measurement precisely because real proof for this file class is expected
+to come from `--dev-testing` subprocess tests (see specs 01/02/03/05.01/
+07, each of which pairs its real `GitTool`/`GitHubTool`/`FileSystemTool`
+additions with exactly such a test) — and `build-implementer` cannot
+write those tests, being hard-permission-blocked from `test/**`. A real
+shim method added inline inside an unrelated functional chunk's own
+build commit — which is what actually happened with `isAncestor`, as a
+deliberate, explicitly-authorized one-off — structurally cannot get real
+coverage that way. It was accepted as known debt for one small, low-risk
+primitive, not a shortcut to generalize from.
+
+**The corrected process: when a spec chunk's own logic newly depends on
+a shim method that isn't real yet, that's a signal to insert a small,
+dedicated dev-testing chunk (spec → test → build) ahead of it in the
+backlog** — not to build the whole shim speculatively, and not to bolt
+the real implementation into the dependent chunk's own build commit.
+This mirrors MAG-46-05.01 exactly: spec 05 discovered it needed more real
+`GitTool` methods than existed, and rather than either extreme, the
+project carved out 05.01 as its own small, focused cycle. That's the
+mechanism that actually produces coverage — `test-writer` writes the
+dev-testing test, `build-implementer` makes it pass — for roughly the
+same cost as adding the method inline, just routed through the phase
+that's actually allowed to write the test.
+
+> Original recommendation, superseded by the above — kept for the
+> decision history, not currently in effect:
+>
+> - When scoping spec chunks for a new external-dependency wrapper (a
+>   CLI tool, an SDK, a REST client, a filesystem abstraction), prefer
+>   one early chunk that implements the entire interface for real, with
+>   real dev-testing coverage for every method — even the ones no other
+>   chunk needs yet — over spreading it thin across many chunks keyed to
+>   individual callers' immediate needs.
+> - If a shim is deferred anyway, treat every other chunk's use of that
+>   shim as a standing risk until the deferred chunk lands, not just the
+>   deferred chunk's own listed dependents.
 
 Same family of gap as `notes/task-phasing-lib-extraction-gap.md` — a
 correctness property visible in the LLD's overall design but invisible
