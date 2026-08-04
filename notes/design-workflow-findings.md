@@ -1,12 +1,30 @@
-## Thin shims over external dependencies should be implemented in one go
+# Design Workflow Findings
 
-**Correction (2026-08-04): the title's conclusion is wrong and has been
-superseded — see "What to change going forward" below.** Building the
-whole shim upfront trades a real problem (this incident) for a worse one
-(speculative code for methods that may never be needed), directly against
-this project's own incremental-delivery philosophy. Kept in place,
-annotated, per this repo's convention — not deleted — because the
-incident and diagnosis below are still accurate; only the fix changed.
+Discrete findings from driving MAG-46's spec → test → build cycle
+agentically, each one a pattern in how to design and sequence work for
+this kind of delivery — not specific to Magpie Weaver's own domain.
+Collected here as they're found, one `##` section per finding.
+
+**Scope note:** this document — and `gate-checks`/`task-phases`
+themselves — belongs to weaver-engineering's **loom** (working name):
+tooling for an architect to do agentic software development effectively,
+not to Magpie Weaver. The need surfaced by attempting to build Magpie
+Weaver agentically; that's the only reason it lives in this repo. Expect
+a future move to a dedicated repo (`the-loom`, TBC). Read every finding
+below as a general principle about agentic development practice, stated
+in `task-phases`' own terms only because that's where it was found.
+
+## Finding 1: thin shims over external dependencies — three tiers, chosen at sequencing time
+
+**Correction (2026-08-04): the original version of this finding's
+conclusion — build the whole shim upfront — was wrong and has been
+superseded by "What to change going forward" below.** Building the whole
+shim upfront trades a real problem (the incident described here) for a
+worse one (speculative code for methods that may never be needed),
+directly against this project's own incremental-delivery philosophy.
+Kept in place, annotated, per this repo's correction convention — not
+deleted — because the incident and diagnosis are still accurate; only
+the fix changed.
 
 **Context:** `@magpieweaver/task-phases`'s `GitTool` (`deps/git.ts`) is a
 thin wrapper over the `git` CLI. It was built incrementally, chunk by
@@ -150,28 +168,8 @@ several chunks *before* 13 in the running order reach them through
 mention. The dependency was real and knowable at sequencing time; nothing
 in the process asked the question.
 
-### Scope note: this belongs to "the loom", not to Magpie Weaver
-
-`gate-checks` and `task-phases` — and this note, and the process it
-describes — are not really part of Magpie Weaver. They are tooling for
-**weaver-engineering's "loom"** (working name): the support an architect
-needs to do agentic software development effectively — "weaving". The
-need for both packages was exposed by attempting to build Magpie Weaver
-agentically; they live in the `magpie-weaver` repo today only because
-that is where the need surfaced.
-
-Both are expected to move to their own repo and project (`the-loom`,
-name to be confirmed). Worth keeping in mind when reading anything in
-this note or its siblings: the *lessons* are about agentic development
-practice generally, not about Magpie Weaver's own domain, and should
-survive the move intact. Where a lesson is stated in terms of
-`task-phases`' specifics (`deps/*.ts`, `build-implementer`, the
-spec → test → build gate model), the underlying principle is the general
-one — a thin shim over an external dependency, an agent role that cannot
-write its own tests, a phase gate that measures coverage.
-
-> Original recommendation, superseded by the above — kept for the
-> decision history, not currently in effect:
+> Original recommendation, superseded above — kept for the decision
+> history, not currently in effect:
 >
 > - When scoping spec chunks for a new external-dependency wrapper (a
 >   CLI tool, an SDK, a REST client, a filesystem abstraction), prefer
@@ -185,7 +183,73 @@ write its own tests, a phase gate that measures coverage.
 
 Same family of gap as `notes/task-phasing-lib-extraction-gap.md` — a
 correctness property visible in the LLD's overall design but invisible
-to any single chunk's own spec, tests, or review. Second data point on
-where this project's spec → test → build cycle needs a design-conformance
-check that isn't just "does this chunk's own behavior match its own
-spec."
+to any single chunk's own spec, tests, or review.
+
+## Finding 2: an agent's interface extensions must be additive-only, never edits — and the follow-up toil that implies is unavoidable, not a process failure
+
+**Context:** MAG-46-11's `promote` action needed a git primitive nothing
+in `GitTool` (`deps/git.ts`) provided — publish `origin/main` to a new
+remote branch name with no local checkout. `test-writer` needed this to
+compile its tests against, so it pinned a new, standalone interface,
+`GitToolBranchCreation`, in a new file (`git.interface.ts`), rather than
+adding the method to `GitTool` itself.
+
+The first question this raised: why not just add the method to `GitTool`
+directly, in the same or a differently-organized file? The answer turned
+out to matter more generally than this one case.
+
+### Why the addition can never touch the existing interface
+
+**`RealGitTool` already declares `implements GitTool`.** If `test-writer`
+added a new required method directly to `GitTool`'s own declaration,
+`RealGitTool`'s existing implementation would immediately stop
+satisfying that interface — a compile break, in a file (`deps/git.ts`)
+`test-writer` is not permitted to touch. There is no way for `test-writer`
+to fix what it just broke. This isn't a file-organization problem — it
+holds regardless of whether `GitTool`'s interface and `RealGitTool`'s
+implementation live in the same file or are already split into separate
+`.interface.ts`/`.ts` files. Splitting them doesn't change which methods
+an *existing* implementation already claims to have; it only changes
+where the (still separate, still additive) extension lives.
+
+So the rule is about structure, not naming: **any interface addition an
+agent role makes must be a standalone extension — a new interface, or an
+`extends` of the existing one — never an edit to a member the existing
+implementation already satisfies.** `test-writer` did the only thing
+available to it correctly.
+
+### The follow-up merge is not avoidable, and that's fine
+
+Reconciling the split — folding `GitToolBranchCreation` into `GitTool`
+proper, giving `RealGitTool` the real method or at minimum a
+`"not implemented"` stub, updating any test that mocked the split
+interfaces to mock the merged one — is always a required follow-up once
+this happens. No file-layout convention removes that step; it's the
+direct consequence of the phase boundary itself (only `build-implementer`
+can touch `RealGitTool`, and only in its own build commit).
+
+That follow-up toil is the accepted, correct cost of a **design-time
+miss** — the LLD/spec design didn't anticipate the interface need before
+handoff — not a defect in how the agent handled discovering it
+mid-session. Treat it as a small, expected quick-scaffold task, same
+shape as Finding 1's tier 2, not as evidence the process broke.
+
+### The actual prevention: catch it at design time, not naming convention
+
+The one thing worth doing proactively is the same discipline Finding 1
+already establishes for shim methods, applied to interfaces specifically:
+**if a design or redesign pass identifies that an existing interface
+will need a new method, that becomes its own scheduled quick-scaffold
+task** — extending the interface and adding either the real
+implementation or a `"not implemented"` stub — done *before* any
+spec/test cycle that will need it, not discovered reactively by
+`test-writer` mid-session.
+
+**What naming precision *does* still buy, separately:** whatever an
+agent's standalone extension is called should say precisely what it
+contains. `git.interface.ts` was a bad name here — it reads as "the
+interface to git," when it's actually one small addition sitting
+alongside the real `GitTool`. `git-branch-creation.interface.ts` would
+have cost nothing and avoided that confusion. Worth doing on its own
+merits; it does not reduce the follow-up-merge cost described above,
+which is unavoidable regardless of naming.
