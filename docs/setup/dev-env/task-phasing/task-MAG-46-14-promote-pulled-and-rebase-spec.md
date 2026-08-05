@@ -37,9 +37,24 @@ primitive was proven in MAG-46-13).
 - `--confirm-rebase` absent in non-interactive (`--json`) mode must refuse
   and explain, never silently rebase and never block with an unexplained
   failure (§3.5) — assert the exact refusal message names what's required.
-- The interactive (`y/N`) prompt path can be covered with a fake stdin/TTY
-  test double if the test harness supports it; if it doesn't yet, flag
-  that as a harness gap rather than skipping the behavior silently.
+- **Correction: the interactive `y/N` prompt reads `process.stdin`
+  directly — it is not an `ExternalTools` member, and this chunk adds
+  none.** Confirmed via architect review ahead of this chunk starting:
+  `ExternalTools` (`git`/`github`/`gateChecks`/`fileSystem`) exists to
+  wrap *external systems* real code genuinely talks to; reading a
+  human's own confirmation off stdin isn't that; it's CLI-layer I/O,
+  the same category as the messages `promote` already writes to
+  stdout. `cli.ts` already has a working, proven pattern for exactly
+  this shape — `readStdin()` (used by `--dev-testing -i`'s JSON-piping)
+  reads `process.stdin` to completion via its `"data"`/`"end"` events.
+  Mirror that same technique for the confirmation read (a single line,
+  not a full JSON blob), rather than introducing `readline` or any new
+  primitive. Test it the same way every test file in this codebase
+  already mocks `process.stdout` (every file's `captureStdout()`
+  helper) — mock `process.stdin` directly (swap in a fake `Readable`
+  that pushes the test's canned answer, then ends), not a fake
+  `ExternalTools` member. No production code outside `promote.ts`'s own
+  interactive-confirmation branch is affected.
 
 ## 3. Required Behaviors
 * `merged-pending-pull` with no pre-existing build commits → plain pull,
@@ -140,8 +155,10 @@ primitive was proven in MAG-46-13).
   * `PromoteCommandResult.action` is `"none"`
   * Exit code 1
 
-**Note for whoever picks this chunk up:** this section assumes the test
-harness can simulate a TTY/stdin answer. If it can't yet, that's a real
-harness gap to raise before writing this section's tests — don't quietly
-skip the interactive path or substitute a second `--confirm-rebase`-mode
-assertion in its place; §3.3 already covers that mode.
+**Resolved (architect review, ahead of this chunk starting):** the harness
+gap this note originally flagged is closed — see §2.1's correction. Mock
+`process.stdin` directly (same technique as every test file's existing
+`captureStdout()`, pointed the other direction); no `ExternalTools`
+change. Don't skip the interactive path or substitute a second
+`--confirm-rebase`-mode assertion in its place; §3.3 already covers that
+mode.
