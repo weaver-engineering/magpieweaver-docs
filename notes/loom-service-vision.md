@@ -94,6 +94,56 @@ human in the loop" for something that deletes test coverage, even
 formulaically, is an open question worth deciding deliberately when this
 gets designed for real — not defaulting to either extreme by accident.
 
+### A concrete mechanism sketch (Simon's, 2026-08-05) — gate-authorized removal, keyed by chunk, not by content
+
+A different shape from "extend `gate-checks` to parse a spec's declared
+exceptions" (considered and deferred above): instead of the gate
+verifying *what changed matches what the spec said*, the gate checks
+*whether this specific chunk is authorized to remove this specific
+test* — authorization as a fact looked up by chunk identity, not derived
+by re-parsing prose or diffing content each time.
+
+**Precondition: chunks need to be individually addressable, which they
+currently aren't.** Every chunk in a task shares one `{ref}` (`MAG-46`
+for specs 00 through 18) — already a known, separate problem
+(`sequenced-spec-supervision-notes.md`: "reused refs poison
+PR-based derivation... this is why the agents' start protocols are still
+raw git"). Extending the ref regex to admit a chunk suffix (`MAG-46-12`,
+matching the spec docs' own naming, which already carries the chunk
+number `task-phases`' git layer currently discards) would fix that
+problem *and* give this mechanism the unique key it needs — the same
+regex change serves both.
+
+**The mechanism:** a shared resource, external to any one commit or
+branch, mapping chunk ID → the specific test ID(s) that chunk is
+authorized to remove. `validate-test-commit` (or `validate-spec-commit`
+— where exactly is itself part of the open design) checks any `test/**`
+change in a commit against this resource, keyed by the chunk ID the
+commit's own ref now unambiguously names, and permits only an exact
+match — anything else in `test/**` still fails exactly as it does today.
+
+**Why this needs a real service, not a committed manifest file:** the
+registry has to be **writable by the scheduler's own automated
+pre-handoff analysis** (the semantic diff described above) as a normal
+part of sequencing a chunk, and then **readable by `gate-checks`
+wherever it actually runs** — which is two very different places: the
+architect's/agents' local dev environment, and GitHub Actions' ephemeral
+runners, which start with nothing but the checked-out repo and no
+persistent local state between runs. A file lives happily in the repo
+but re-opens the exact problem this mechanism exists to avoid (it would
+itself need a commit, on some branch, gated by some rule about who can
+add entries and when). A real network-reachable service is what actually
+satisfies "the same fact, readable from both environments, writable only
+by the scheduler."
+
+**Status: a substantial change, not scoped or scheduled.** Real
+infrastructure (a service `gate-checks` calls out to, reachable from CI),
+a `gate-checks` change on top of it, and the ref-regex extension as a
+genuine prerequisite, not just a nice-to-have alongside it. Recorded here
+as the leading concrete candidate for *if* the open automation question
+above gets resolved toward "yes, mechanize it" — not a decision to build
+it.
+
 ## Scope note
 
 Same as every other note in this file: this is **the loom**
