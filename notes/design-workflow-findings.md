@@ -253,3 +253,94 @@ alongside the real `GitTool`. `git-branch-creation.interface.ts` would
 have cost nothing and avoided that confusion. Worth doing on its own
 merits; it does not reduce the follow-up-merge cost described above,
 which is unavoidable regardless of naming.
+
+## Finding 3: prior-behavior retirements are formulaic, not a spec defect — and don't need stating in the spec that triggers them
+
+**Context:** three separate times across MAG-46 (specs 11, 11.01, 12;
+a fourth, spec 15, is already known to be coming), a chunk's required
+behavior has directly contradicted a specific assertion in an existing,
+already-merged test file — `defers-when-gate-pr-exists.test.ts`, written
+once, early (spec 06.01), asserting a blanket "any gate PR on any of the
+three base/head pairs defers" placeholder. Each later chunk that gives
+one specific pair real behavior instead of deferral makes that one
+specific case in the old test provably wrong. Every time, the fix has
+been identical in shape: an architect quick-route commit, landed *before*
+`test-writer`'s session starts, that retires the one contradicted case
+with a `**Correction:**` annotation, leaving every other case in the
+file untouched.
+
+### Why this isn't a spec defect, and the language calling it one was wrong
+
+The instinct is to describe this as "the spec contradicts an existing
+test" and treat it the same as a genuine spec bug (spec 09's own
+self-contradiction; spec 10's wrong post-fork state assertion) — fix by
+correcting the spec. That's the wrong model. In every instance so far,
+the *new* spec was correct — its whole point is to make one specific
+placeholder real. What's "wrong" is that an *older* test's blanket
+assertion has reached the end of its validity for one of the cases it
+covers, exactly as its own comments already said it would (spec 06.01's
+`assertNoGatePR` comment named MAG-46-11/12/15 by number, years — well,
+chunks — in advance). The fix is never "change the spec"; it's always
+"retire the one now-superseded case in the old test," a different
+action entirely, aimed at a different file.
+
+### Why it's formulaic — derivable from the diff, not from spec-author foresight
+
+**The set of prior-behavior retirements a chunk needs is mechanically
+computable: it's every existing, already-merged test assertion that the
+chunk's own required behavior directly contradicts.** This doesn't
+depend on the spec author having predicted it — 06.01's own
+unusually-good foresight (naming the future chunks explicitly) didn't
+make the retirement optional or automatic; a quick-route commit was
+still needed every single time, because the phase-boundary rule that
+makes this necessary (agents cannot edit existing test files, so they
+cannot retire one themselves even when their own required behavior
+obviously supersedes it) is unrelated to how well the eventual need was
+telegraphed. Good foresight tells you *which* future chunk will need the
+retirement; it doesn't remove the need to actually do it, at that
+chunk's own pre-handoff review, as a mechanical step.
+
+**This means a chunk's spec doc doesn't need to mention its own
+prior-behavior retirements at all** — unlike a shim dependency (Finding
+1) or an interface gap (Finding 2), which the spec's Deliverable Notes
+should name because they change what the chunk needs to *build*, a
+prior-behavior retirement is entirely about an *unrelated* file the
+chunk's own required behavior happens to supersede. Stating it in the
+spec would be redundant with information the check below already
+produces mechanically, and risks going stale if sequencing shifts.
+
+### Where the check belongs — the same two-tier shape as Finding 1
+
+- **At design/sequencing time, across a run of chunks, not one at a
+  time:** for each chunk being sequenced, diff its required behaviors
+  against every currently-merged test's specific assertions. Any direct
+  contradiction is a prior-behavior retirement that chunk will need.
+  Doing this across several chunks at once (as opposed to one chunk's
+  own turn) is what let MAG-46-12's retirement get found and fixed
+  *before* its own cycle even started, rather than being discovered
+  reactively by `test-writer` the way 11 and 11.01's were.
+- **At each chunk's own pre-handoff review, as a backstop** — same
+  reason Finding 1's shim check has one: sequencing-time analysis can
+  miss something, or a spec can gain Deliverable Notes after the
+  original pass.
+- **Never left to the chunk's own test-writer session to discover.**
+  When it has been (11, 11.01), the outcome was still correct — clean
+  `needs-architect-intervention` reports, no uncommitted work — but it
+  costs a full round-trip the check above avoids for free.
+
+### The formulaic solution, once a retirement is identified
+
+1. Locate the exact contradicted `it()` block(s) in the existing test
+   file.
+2. Add a dated `**Correction:**` note to the file's own header comment,
+   naming the chunk that supersedes it and where the real behavior is
+   retested for real (per the test-file-layout doc's own row for that
+   chunk).
+3. Delete the contradicted block(s) only. Update the file's
+   `System behaviors:` comment line to drop the retired IDs. Check for
+   now-orphaned test-only helper functions the deleted block was the
+   sole caller of, and delete those too.
+4. Land as its own quick-route commit (`task/{ref}`), landed and merged
+   into `main` *before* the chunk's `spec/{ref}` is created — a
+   contradicted test still present when `test/{ref}` forks reproduces
+   the exact problem the retirement fixes.
