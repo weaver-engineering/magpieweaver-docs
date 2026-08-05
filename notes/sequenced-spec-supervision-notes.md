@@ -53,6 +53,62 @@ scoping, got its own clean cycle) and `isAncestor` (noticed by a crash in
 merged code, got an emergency fix) is entirely *when the question was
 asked*, not how hard it was to answer.
 
+## Why prior-behavior retirements recur, and why that's not a planning failure
+
+Three times now (specs 11, 11.01, 12 — a fourth, spec 15, already known
+to be coming), a chunk's required behavior has directly contradicted a
+specific assertion in an already-merged test file
+(`defers-when-gate-pr-exists.test.ts`, a single blanket placeholder
+written once in spec 06.01: "any gate PR on any base/head pair defers").
+The instinct is to read this as a sequencing miss — if we'd planned
+better, wouldn't we have avoided needing the fix-up? Mostly no, and it's
+worth being precise about why, because the honest answer isn't "we did
+great" or "we should have planned harder" — it's that this specific cost
+is structural, not a symptom.
+
+06.01's own comment already named, correctly, which future chunk would
+retire each case ("owned by later chunks MAG-46-11/12/15") — about as
+good as design-time foresight gets. That foresight didn't make the
+retirement automatic or unnecessary; a quick-route commit was still
+needed every time, because what makes it necessary is a *rule*, not a
+*gap in planning*: `test-writer` cannot edit an existing test file, even
+one its own chunk's required behavior obviously supersedes. That rule
+exists for a good reason (stop an agent silently patching around a test
+it broke by accident) and we want to keep it, which means the retirement
+tax is the accepted price of keeping it, not evidence the backlog was
+sequenced badly. See `notes/design-workflow-findings.md` Finding 3 for
+the full generalisation, including where the check now belongs (a batch
+pass across a run of upcoming chunks, with each chunk's own pre-handoff
+review as a backstop — the same two-tier shape as the shim-dependency
+check above) and the exact formulaic retirement recipe.
+
+The real counterfactual worth asking isn't "could we have avoided the
+tax" — it's "was the alternative better." The alternative was bundling
+11/11.01/12/15 into one chunk, so a single `test-writer` session rewrites
+the whole gate-PR-pair surface at once with nothing ever landing in an
+intermediate, partially-contradicted state. That does avoid the tax. It
+also produces a much bigger, harder-to-review diff and works against
+this project's own preference for small, independently-gated increments
+— and the original blanket test wasn't free-floating overhead either: it
+caught a real bug (spec 06.01's own `assertNoGatePR` dead-code/unwired
+defect) that a "ship nothing until the real behavior exists" alternative
+would have missed entirely. Small chunks plus a small, predictable,
+well-understood retirement tax beats fewer, bigger chunks that dodge the
+tax but lose the review granularity and the early-bug-catching value of
+having a test at all.
+
+**What genuinely was avoidable, and is a real planning miss, not a
+structural cost:** the `main-gate` trunk-drift gap
+(`build-implementer` had to improvise a rebase mid-session because
+nobody had designed for `main` advancing between `build/{ref}`'s creation
+and its own Main Gate PR, even though the *analogous* spec/quick
+trunk-drift case was already solved), and the test-file-layout doc citing
+the wrong rule for spec 11.01 §3.4 (an authoring slip, not a structural
+cost). The batch pre-sequencing review that caught spec 14's harness gap
+before it repeated a fourth time is exactly the practice worth keeping
+for *this* category — it's the retirement tax's structural cousins that
+batch review actually prevents, not the tax itself.
+
 ## Why I run e2e tests even when everything is green
 
 Because everything being green is exactly the condition under which the

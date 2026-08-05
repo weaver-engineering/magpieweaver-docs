@@ -58,6 +58,42 @@ Agent SDK server — there's nothing to poll, you're building the
 persistent half from scratch. Half client, half server, and it's the
 Claude-facing half that carries the actual hosting burden.
 
+## Another design requirement: the scheduler needs to know about prior-behavior retirements
+
+The service's whole premise is replacing the architect's *mechanical*
+operation of chunk sequencing and agent interaction with an automated
+schedule — which means every mechanical step the architect currently
+does by hand needs a home in the scheduler, not just the parts that were
+easy to picture up front (watching sessions, raising PRs, summarising
+logs). **Prior-behavior retirements** (`design-workflow-findings.md`
+Finding 3; the operating recipe in
+`sequenced-spec-supervision-CLAUDE.md`) are exactly this kind of step:
+formulaic, recurring, and currently done by the architect reading a spec
+doc against the current test suite by hand.
+
+**What the scheduler needs to do, concretely:** before queuing a chunk
+for `test-writer`, diff that chunk's required behaviors against every
+currently-merged test file's specific assertions, the same check
+described in Finding 3. Unlike a lot of the rest of the scheduling logic
+(branch state, gate results, PR status — all mechanically queryable
+today), this diff is semantic, not structural: it means comparing a
+spec doc's prose Given/When/Then against a test file's actual assertions
+to find direct contradictions, not a data-shape check. That's real work
+for whatever LLM layer the service already needs for its chat-heads/
+1-click-prompt UI (see "The shape" above) — this is a second, concrete
+job for that same layer, not a new capability the design didn't already
+require.
+
+**Once a retirement is found, the four-step recipe itself is
+mechanical** (locate the contradicted block, add a dated correction
+note, delete just that block, land as its own quick-route commit ahead
+of the chunk's `spec/{ref}`) — a strong candidate for full automation
+rather than a 1-click human confirmation, *if* the service is confident
+in what it found. Whether "confident" ever means "fully autonomous, no
+human in the loop" for something that deletes test coverage, even
+formulaically, is an open question worth deciding deliberately when this
+gets designed for real — not defaulting to either extreme by accident.
+
 ## Scope note
 
 Same as every other note in this file: this is **the loom**
