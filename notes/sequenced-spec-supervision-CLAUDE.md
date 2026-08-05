@@ -39,9 +39,14 @@ This has caught a real, load-bearing defect in **every** chunk it has
 been applied to. Budget real time for it. Read the spec against the LLD
 and the actual current code, and check:
 
-- **Does the spec contradict already-merged code or tests?** Frozen test
-  files are immutable; a spec that requires changing one is a defect in
-  the spec.
+- **Does the spec contradict the LLD or itself?** That's a genuine spec
+  defect — fix by correcting the spec doc in place.
+- **Does the spec's required behavior directly contradict a specific
+  assertion in an already-merged test file?** This is a *different*
+  question with a *different* fix — see "Prior behavior retirements"
+  below. It is not a spec defect (the new spec is usually correct; an
+  older placeholder test has reached the end of its validity for one
+  case), so do not "fix" it by editing the spec.
 - **Does this chunk's logic reach a shim method that isn't implemented
   yet?** Mocked tests will not tell you — they mock the whole boundary.
   Trace the real call path. If it reaches a stub, decide the tier now
@@ -67,6 +72,49 @@ Correct the spec doc in place with an annotated `**Correction:**` block —
 that repo's convention preserves decision history rather than rewriting
 it. Land the correction in the docs repo, then copy the corrected doc
 into the code repo's `spec/{ref}` commit.
+
+## Prior behavior retirements
+
+A chunk's required behavior can directly contradict a specific
+assertion in an already-merged test file — not because either spec is
+wrong, but because an earlier chunk's test made a *blanket* assertion
+("any gate PR defers", say) that this chunk's job is to make real for
+one specific case. This recurs formulaically; it is not a one-off. See
+`notes/design-workflow-findings.md` (Finding 3) for the full reasoning.
+
+**Detecting it — do this across every chunk you're about to sequence,
+not one at a time:** diff each upcoming chunk's required behaviors
+against every currently-merged test file's specific assertions. A direct
+contradiction is a prior-behavior retirement that chunk will need. Do
+this as a batch pass before starting a run of chunks (catches it before
+any chunk's own cycle starts); re-run it at each chunk's own pre-handoff
+review as a backstop (catches drift since the batch pass, or anything
+the batch pass missed). Never rely on `test-writer` finding it — it will
+report `needs-architect-intervention` cleanly if it does, but that costs
+a full round-trip the check above avoids for free.
+
+**Fixing it — always the same four steps, always before `spec/{ref}` is
+created for the chunk that needs it:**
+
+1. Locate the exact contradicted `it()` block(s) in the existing test
+   file.
+2. Add a dated `**Correction:**` note to the file's own header comment,
+   naming the chunk that supersedes it and where the real behavior is
+   retested for real (per that chunk's own row in
+   `task-MAG-46-test-file-layout-design.md`).
+3. Delete the contradicted block(s) only — nothing else in the file.
+   Update the file's `System behaviors:` comment line to drop the
+   retired IDs. Check for now-orphaned test-only helper functions the
+   deleted block was the sole caller of, and delete those too.
+4. Land as its own quick-route commit (`task/{ref}`), reviewed and
+   merged into `main` before `spec/{ref}` is recreated for the chunk
+   that needs it. A contradicted test still present when `test/{ref}`
+   forks reproduces the exact problem this fixes.
+
+**Never** "fix" this by editing the new chunk's spec — the new spec is
+what's making the older placeholder correctly obsolete; changing it
+would be solving a problem that doesn't exist at the cost of the one
+that does.
 
 ## Reviewing an agent PR
 
