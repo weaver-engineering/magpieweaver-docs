@@ -35,6 +35,22 @@ entry is the currently checked-out task.
   §4.5) — the same function `status` calls. Do not duplicate that logic
   here, and do not add a `list`-specific derivation path.
 
+**Resolved (architect fix, caught by test-writer at session start, not a
+silent gap):** "List all branches in the repo" (LLD §3.10) had no backing
+primitive — every prior `GitTool` method takes a specific branch/ref
+name; nothing before this chunk needed to enumerate. Added
+`GitTool.listBranches(): Promise<string[]>` (LLD §4.8) — every local
+branch name plus every remote-tracking branch name in short form
+(`origin/test/{ref}`), in one call. Mock it directly in your test double
+(a genuinely new `git` member, not a stub being resolved). The
+build phase strips any `origin/` prefix and any phase prefix, matches
+the remainder against `/^[A-Z]+-[0-9]+$/`, and groups both forms of the
+same branch under one `{ref}` entry — a ref reachable only via
+`origin/test/{ref}` (never checked out locally) is exactly as active as
+one with a local branch, and your fixtures should cover that case (not
+just local-only branches) given §3.3's "no branch on origin or locally"
+Given already implies both are checked.
+
 ## 3. Required Behaviors
 * Lists every ref with an active branch, each with its derived phase/state.
 * Marks the currently checked-out task's entry.
