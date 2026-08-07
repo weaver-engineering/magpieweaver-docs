@@ -80,8 +80,9 @@ agentic capability gap to fill there.
 | `edit`: `packages/**/*.interface.ts` | allow | deny (read only) | allow |
 | `edit`: `packages/**` (impl, minus `*.interface.ts`) | deny | allow | allow |
 | `gate-check` tool | `build-gate` only | `main-gate` only | `main-gate` only |
-| `task-phases` tool (incremental — see `open-code-agent-tools.md` §3) | `status` + whatever's real | `status` + whatever's real | `status` + whatever's real |
+| `task` tool (real today, complete — see `open-code-agent-tools.md` §3) | full command surface | full command surface | full command surface |
 | `bash`: git commit/push, `gh pr create` | scoped allow (see §5) | scoped allow (see §5) | scoped allow (see §5) |
+| `bash`: git switch/merge-base/rebase (branch navigation) | scoped allow, **not yet narrowed** (see §5 correction) | scoped allow, **not yet narrowed** (see §5 correction) | scoped allow, **not yet narrowed** (see §5 correction) |
 
 ## 5. Git/GitHub Write Actions — Trust Now, Railroading Later
 
@@ -132,3 +133,18 @@ reduction schedule**, not just a tool-addition schedule — each tool
 method landing should trigger the tool addition, the raw `bash` pattern
 removal, and a reassessment of whether that phase is ready to run
 headlessly, recorded together rather than as separate changes.
+
+**Correction (MAG-40 §3bo):** `task`'s tool-call migration happened
+(all three agents' Session Start Protocols now call `task` instead of
+raw `git`, once MAG-46 completed) but the permission-removal and
+headless-reassessment halves of this pairing did not — every branch-
+navigation `bash` pattern (`git switch*`, `merge-base*`, `rebase*`, and
+`build-implementer`'s `ready/{ref}`-specific ones, which can never be
+removed since the tool has no model for that branch — see
+`open-code-agent-tools.md` §3) still stands exactly as before, and all
+three agents still run interactively. Narrowing those permissions and
+reassessing headless-readiness for `test-writer`/`quick-scaffolder`
+(whose protocols convert fully, unlike `build-implementer`'s) is real,
+open follow-up work — a deliberate decision to make explicitly, not
+something to infer as already done because the tool exists and the
+prose was rewritten.
