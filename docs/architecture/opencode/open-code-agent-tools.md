@@ -60,72 +60,100 @@ export default tool({
     checkName: tool.schema.string().describe("e.g. test-gate, build-gate, main-gate"),
     ref: tool.schema.string().describe("Task ref, e.g. AAA-001"),
   },
-  async execute(args) {
+  async execute(args, context) {
     const { stdout } = await run("pnpm", [
       "gate-check", args.checkName, "--json", "--ref", args.ref,
-    ])
+    ], { cwd: context.directory })
     return JSON.parse(stdout) // GateCheckResult
   },
 })
 ```
 
-## 3. Tool: `task-phases`
+**Correction (found live, MAG-40 §3bn):** the real implementation
+originally omitted `context` from `execute` entirely and called `execFile`
+with no `cwd`, so every call ran against the OpenCode *server* process's
+own working directory — wherever `opencode serve` was launched from —
+regardless of which session/worktree actually invoked the tool. Every
+agent session was silently affected from this tool's very first
+deployment; nobody noticed because each agent worked around the
+"detached main checkout" result as an apparent environment quirk rather
+than a bug. `context.directory` (the plugin SDK's own documented field
+for exactly this) is required, not optional, for any custom tool that
+shells out — the example above now reflects that.
 
-**Status: incremental** — `task-phases` itself is being built
-(`task-MAG-46-*` specs) by hand-cranking the equivalent mechanical steps
-manually in the meantime. This tool's methods are added **one at a time**,
-only once a real, working `task-phases` command exists behind them — no
-speculative stubs, no pre-declared "not implemented" methods.
+## 3. Tool: `task`
 
-**File:** `.opencode/tool/task-phases.ts`
+**Status: real today, complete** — `task-phases` shipped all 18
+`task-MAG-46-*` chunks; `status`, `init`, `list`, `promote`, `wip`, and
+the `<ref>`-switch command are all real, fully-flagged implementations.
+The "one method at a time, only once its backing CLI command is real"
+build-out this section originally described is finished — this is now a
+single tool exposing the whole command surface, not an incrementally
+growing one. The `task-phases-tool-readiness-mapping` chat-spec this
+section pointed to as a follow-up is superseded; there's no remaining
+mapping to track.
+
+**File:** `.opencode/tool/task.ts` (named after the `pnpm task` command
+it wraps, not `task-phases.ts` — corrected from this section's original
+naming).
 
 **Requirements:**
-- Each method mirrors the real CLI command 1:1 (`status`, `promote`,
-  `init`, `list`, `wip`, the `<ref>`-switch command) and wraps `pnpm task
-  <command> --json ...`, returning the parsed `TaskPhasingCommandResult`
-  (per `task-phasing-lld.md` §2) directly.
-- A method is **only added to this file once its backing CLI command is
-  real** — an agent should never be offered a tool call that can't do
-  anything. This keeps the tool list from being swamped with speculative,
-  not-yet-working methods.
-- A tool existing doesn't guarantee every behavior behind it is complete —
-  an agent can still hit a real gap on an edge case whose spec hasn't
-  landed. That's expected, not an error contract to design around here;
-  the agent falls back to its own standing-instructions procedure for that
-  case, same as before the tool existed.
-- **Exact mapping of which `task-MAG-46-*` spec(s) unlock which method,
-  and which are needed for a method to be considered fully complete, is
-  tracked separately** — see the `task-phases-tool-readiness-mapping`
-  chat-spec (follow-up, not yet run).
+- A single `command` argument selects the real CLI command 1:1
+  (`status`, `promote`, `init`, `list`, `wip`, or a bare ref for the
+  `<ref>`-switch command), wraps `pnpm task <command> [...args] --json`,
+  and returns the parsed `TaskPhasingCommandResult` (per
+  `task-phasing-lld.md` §2) directly.
+- A tool existing doesn't guarantee every behavior behind it covers
+  every real-world shape — an agent can still hit a genuine limitation
+  (see the note below on `ready/{ref}`). That's expected, not an error
+  contract to design around here; the agent falls back to its own
+  standing-instructions procedure for that specific case.
 
-**Example configuration (once `status` is real):**
+**Known, permanent limitation — not a gap awaiting a future chunk:** the
+derivation pipeline behind `status`/`promote` models exactly four
+phases — `spec`/`test`/`build`/`quick` — and has no concept of
+`ready/{ref}` at all. That branch is a manual convention
+`build-implementer` uses to work around `build/{ref}` being
+branch-protected (see `open-code-sub-agents.md` §3's `build-implementer`
+entry), introduced after this tool's phase model was fixed, and never
+folded into it. `build-implementer`'s standing instructions keep the
+`ready/{ref}`-specific mechanics (creation, base-still-current check,
+transplant) in raw `git` for exactly this reason. Teaching the
+derivation pipeline about a `ready` phase would be new `task-phases`
+product work, not a tool-definition update — out of scope here.
+
+**Example configuration:**
 
 ```typescript
-// .opencode/tool/task-phases.ts
+// .opencode/tool/task.ts
 import { tool } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 const run = promisify(execFile)
 
-export const status = tool({
-  description: "Reports the derived phase/state of the current or named task",
+export default tool({
+  description: "Runs a pnpm task-phases command (init, status, list, promote, wip, or a bare task ref for the ref-switch command) and returns its structured JSON result.",
   args: {
-    ref: tool.schema.string().optional(),
-    check: tool.schema.boolean().optional().describe("resolve ready? via gate-check"),
+    command: tool.schema.string().describe("status, init, list, promote, wip, or a bare ref e.g. AAA-001"),
+    args: tool.schema.array(tool.schema.string()).optional(),
   },
-  async execute(args) {
-    const cliArgs = ["task", "status", "--json"]
-    if (args.ref) cliArgs.push("--ref", args.ref)
-    if (args.check) cliArgs.push("--check")
-    const { stdout } = await run("pnpm", cliArgs)
-    return JSON.parse(stdout) // TaskPhasingResult
+  async execute(args, context) {
+    const { stdout } = await run(
+      "pnpm",
+      ["task", args.command, ...(args.args ?? []), "--json"],
+      { cwd: context.directory },
+    )
+    return JSON.parse(stdout) // TaskPhasingCommandResult
   },
 })
-
-// promote, init, list, wip, <ref>-switch added the same way, one at a
-// time, as each becomes real.
 ```
+
+**Correction (found live, MAG-40 §3bn):** same `context.directory`/`cwd`
+requirement as `gate-check` (§2) — the real implementation omitted it
+entirely until then, silently running every `task` call against the
+OpenCode server's own working directory rather than the calling
+session's.
 
 ## 4. Permission Scoping (edit / bash)
 
@@ -168,3 +196,20 @@ updating this file means **adding** the new tool method, **narrowing**
 the relevant sub-agent's `bash` permissions, **and** reassessing whether
 that phase is ready to move from interactive to headless operation — all
 in the same change, not separate updates made at different times.
+
+**Correction (MAG-40 §3bo):** in practice this didn't happen
+incrementally, method by method, as originally envisioned above —
+`task`'s methods all landed together at the end of MAG-46 (specs 16–18
+shipped `list`, the remaining `promote` actions, and `status --fix`/
+`init`'s flag variants in close succession), so the standing-instruction
+side of this pairing happened as one blanket change (§3bo: all three
+agents' Session Start Protocols rewritten to call `task` instead of raw
+`git`) rather than per-method. **The other two-thirds of this section's
+pairing — narrowing `bash` permissions and reassessing headless-readiness
+— has *not* happened yet.** Every `git switch*`/`merge-base*`/`rebase*`
+permission still stands exactly as before in all three agents'
+frontmatter, and all three still run interactively. That's a real,
+open follow-up this correction surfaces rather than silently leaves
+inconsistent with what this section says should have happened —
+tracked as new, separate work, not assumed done because the tool call
+migration is.
