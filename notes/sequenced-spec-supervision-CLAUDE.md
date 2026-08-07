@@ -25,13 +25,37 @@ architect: clear down, next chunk
    never squashed.** Squashing collapses spec+test into one commit and
    breaks `main-gate`'s 3-commit rule downstream. Main Gate PRs
    (`ready/{ref}` → `main`) are squash-merged as normal.
-3. **Clear down between cycles.** After a Main Gate merge, delete
-   `spec/`, `test/`, `build/`, `ready/{ref}` on origin and in every
+3. **Clear down between cycles.** After a Main Gate merge, run `pnpm
+   task promote` (dogfooded — the tool cleans up `spec/`/`test/`/
+   `build/{ref}` itself once you're checked out on the canonical branch)
+   then delete `ready/{ref}` separately — `promote`'s cleanup list didn't
+   include it until this workflow's own use surfaced the gap (fixed in
+   `promote.ts`, but confirm the fix has actually landed in the worktree
+   you're running before assuming it's automatic). Do this in every
    worktree, before starting the next chunk. A stale branch reads as
    "already there and fine" to naive existence checks and produces
    spurious conflicts.
 4. **Only the standard Begin/Resume prompts**, verbatim.
-5. **Fresh session per phase**, at cycle boundaries.
+5. **Fresh session per phase**, at cycle boundaries. **Always pass
+   `agent` explicitly** — both in the `POST /session` creation call and
+   the first `POST /session/{id}/message` call. Omitting it silently
+   falls back to OpenCode's own built-in default agent, not the intended
+   sub-agent — confirmed the hard way: a session created without it ran
+   an entire kickoff turn as the wrong agent before anyone noticed.
+   Verify with `GET /session/{id}` — the `agent` field should already
+   read the intended sub-agent's name *before* you send the real kickoff
+   prompt, not after.
+6. **The architect uses one dedicated worktree, never an agent's own.**
+   Running architect-side `git` (branch switches, doc/config commits,
+   dogfooded `promote`/`status`) in the same worktree a live agent
+   session is using is a real, confirmed way to lose work: switching the
+   branch mid-session while the agent runs `git add -A && git commit`
+   lands its commit on whichever branch happened to be checked out at
+   that instant, not the one it thinks it's on. Nothing was un-recoverable
+   the time this happened, but only because the commit was still found
+   and cherry-picked back — don't rely on that. Pick one worktree that no
+   agent session ever runs in and do all architect git operations there,
+   full stop.
 
 ## Pre-handoff spec review — do this every time
 
@@ -129,7 +153,21 @@ that does.
 4. **Verify claims independently.** Especially coverage numbers and
    "gate passes" — reproduce locally rather than trusting the report or
    the CI summary line.
-5. Report and hand off. Do not merge.
+5. **On a test-phase PR specifically: check the fixture is actually
+   answerable, not just that it currently fails.** Fail-then-pass proves
+   a test fails against the pre-implementation stub — it cannot
+   distinguish a genuinely broken implementation gap from a fixture
+   that's internally unsatisfiable by *any* implementation. For every
+   assertion that expects two different outcomes from two different
+   inputs in the same test, trace whether the fixture's mocks actually
+   produce two different signals for them. A test whose fixture makes
+   both inputs indistinguishable will fail red pre-implementation
+   exactly like a correct one would — that's not evidence it's
+   answerable, it's the one thing fail-then-pass can't tell you. This
+   was missed once (task-MAG-46-18) and caught downstream by
+   `build-implementer` instead, costing a full round-trip that this
+   check would have avoided for free.
+6. Report and hand off. Do not merge.
 
 ## End-to-end verification after the build phase
 
@@ -157,12 +195,84 @@ in-process coverage cannot see. So a shim method landing with an
 unchanged coverage percentage means **its lines were never counted**, not
 that they're covered. Say so precisely when reporting.
 
+## Mechanical gotchas worth knowing before they cost you time
+
+- **Recycled branch names on small housekeeping PRs need
+  `--force-with-lease`, and that's expected.** A branch like `task/{ref}`
+  reused across many small fixes under one enduring ticket (permission
+  globs, tool bug fixes, task-doc updates) will often have a prior,
+  already-merged commit still sitting on it when you branch fresh off
+  `main` for the next one. The push gets rejected as non-fast-forward —
+  that's not a sign anything's wrong, just force-push the fresh branch.
+- **A wedged-looking GitHub check can be a platform outage, not your
+  config.** If a required check sits `queued` far past normal latency,
+  or the run/cancel/rerun APIs give self-contradictory answers about the
+  same run, check `https://www.githubstatus.com/api/v2/status.json`
+  before spending time on a local fix — an active Actions incident there
+  explains exactly that symptom and resolves itself once GitHub clears
+  it.
+- **A custom OpenCode tool that shells out needs `context.directory` as
+  `cwd`, always.** `execFile("pnpm", [...])` with no `cwd` runs against
+  the OpenCode *server* process's own working directory, not the calling
+  session's — silently, for every session, for as long as the tool
+  exists. This bit `gate-check`/`task` from their first deployment; the
+  giveaway was agents repeatedly, independently rediscovering "wrong
+  checkout" as an apparent environment quirk rather than it ever
+  surfacing as a bug. If you see that pattern recur for a *different*
+  custom tool, check this first.
+
 ## Monitoring live sessions
 
-`curl -s http://<host>:4096/session/status` — `{}` means idle. Inspect
+Two different needs, two different tools — don't poll manually for
+either.
+
+**Watching one session's own progress:** `curl -s
+http://<host>:4096/session/status` — `{}` means idle. Inspect
 `/session/{id}/message` (no `/api/` prefix) for real content. For stall
 diagnosis and permission recovery, see
 `agent-instruction-tuning-CLAUDE.md`.
+
+**Watching for the *result* of a session's work (a branch tip changing, a
+PR appearing)** — run a persistent background poll loop and keep working;
+let it notify you rather than checking in yourself:
+
+```bash
+cd <architect worktree>
+last_sha=$(git rev-parse origin/<branch> 2>/dev/null || echo none)
+last_pr_count=$(gh pr list --repo <org>/<repo> --base <base> --json number --jq 'length' 2>/dev/null || echo 0)
+while true; do
+  sleep 30
+  git fetch origin -q 2>/dev/null
+  cur_sha=$(git rev-parse origin/<branch> 2>/dev/null || echo none)
+  if [ "$cur_sha" != "$last_sha" ]; then
+    echo "BRANCH TIP CHANGED: <branch> now at $cur_sha"
+    git log --oneline -5 origin/<branch> 2>/dev/null
+    last_sha=$cur_sha
+  fi
+  cur_pr_count=$(gh pr list --repo <org>/<repo> --base <base> --json number --jq 'length' 2>/dev/null || echo 0)
+  if [ "$cur_pr_count" != "$last_pr_count" ]; then
+    echo "NEW PR against <base> (count $last_pr_count -> $cur_pr_count):"
+    gh pr list --repo <org>/<repo> --base <base> --json number,title,url --jq '.[0]' 2>/dev/null
+    last_pr_count=$cur_pr_count
+  fi
+done
+```
+
+Worked well across the whole spec-16–18 run. Two things worth knowing
+before relying on it:
+
+- **`gh pr list --base <base>` isn't scoped to the agent's own PR** — if
+  the architect *also* raises a PR against the same base in the same
+  window (a permission-config fix, a task-doc close-out), the count
+  ticks up for that too. Not a bug — just check `gh pr list` yourself
+  when the notification fires rather than assuming it's the agent's PR.
+- **Stop the monitor once its purpose is served** (`TaskStop`), rather
+  than leaving several running — a stale one watching a branch that's
+  already been merged and cleaned up just produces noise.
+
+Match the watched branch/base to the phase: `test/{ref}` tip + PRs
+against `build/{ref}` while waiting on the test phase; `ready/{ref}` tip
++ PRs against `main` while waiting on the build phase.
 
 ## Keeping the task doc current
 

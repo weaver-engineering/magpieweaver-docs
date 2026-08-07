@@ -120,6 +120,56 @@ The discipline that matters: assert on the **repo state afterward**, not
 on the tool's own output. A tool reporting `action: "forked"` is a claim;
 `git log` on the branch it says it created is evidence.
 
+## Fail-then-pass proves a test fails pre-implementation. It doesn't
+prove the fixture is answerable.
+
+A new failure mode, distinct from both the shim-dependency check and
+prior-behavior retirements above: `task-MAG-46-18`'s bad-`--specs` test
+had a fixture where both the "good" and "missing" paths resolved
+identically under the default `exists()` mock (only `templates/*`
+existed) — yet the test asserted one gets copied and the other doesn't.
+Nothing in that fixture could tell any implementation, correct or not,
+which was which. It still failed red against the pre-implementation
+stub, exactly the way a genuinely-answerable test would have — because
+*every* test in an unimplemented file fails pre-implementation, whether
+its fixture is coherent or not. Fail-then-pass answers "does this fail
+now," not "can any correct implementation make this pass later," and
+those are different questions that happen to look identical from the
+outside until someone actually tries to implement it.
+
+Missed at architect review (fail-then-pass confirmed, full suite green,
+mocks correctly scoped — all real checks, none of them the right
+question here) and caught downstream by `build-implementer`, who
+correctly recognised it as outside its own authority (`test/**` is off
+limits) and reported the exact mechanism rather than guessing at a
+workaround. That round-trip is exactly what item 5 under "Reviewing an
+agent PR" (`sequenced-spec-supervision-CLAUDE.md`) now exists to avoid:
+for every assertion expecting two different outcomes from two different
+inputs, check the fixture's mocks actually produce two different
+results for them.
+
+## Validate a design correction against the actual code before agreeing with it
+
+When a proposed simplification sounds right, check whether the *system*
+already agrees with it before accepting or building it — don't just
+reason about it in the abstract. MAG-49's design (`build-implementer`
+commits locally to `build/{ref}` and `promote` does one terminal rename-
+and-raise, instead of creating `ready/{ref}` from session start and
+hand-managing it throughout) turned out to already be exactly what
+`packages/gate-checks/src/checks/main-gate.ts` was built for — its own
+code comment says so directly: local `build/{ref}` and `ready/{ref}` are
+explicitly treated as equivalent for self-verification, "possibly before
+[the agent] has renamed/pushed `ready/{ref}` yet." The standing
+instructions had simply never been built to use the design the gate
+check already supported. Reading that file before agreeing turned "this
+sounds plausible" into "this is confirmed, and here's the exact existing
+mechanism to build on" — and, separately, turned up that the obvious
+literal mechanism for one part of the fix ("force push `build/{ref}` to
+`origin/ready/{ref}`") doesn't exist as a primitive (`push()` has no
+refspec form for pushing a local branch onto a differently-named remote
+ref) before that gap became a mid-implementation surprise instead of a
+design-time one.
+
 ## Things that bit us, mechanically
 
 - **Squash vs rebase on the Build Gate PR.** Squashing `test/{ref}` into
@@ -141,7 +191,67 @@ on the tool's own output. A tool reporting `action: "forked"` is a claim;
   one ref means `assertNoGatePR` finds merged gate PRs from previous
   chunks and defers permanently. `status` cannot answer for `MAG-46` at
   all until the merged-PR states land (chunks 12/15). This is why the
-  agents' start protocols are still raw git.
+  agents' start protocols were still raw git for as long as they were —
+  resolved for `test-writer`/`quick-scaffolder` once `task-phases`
+  completed (MAG-40's close-out); see "What we decided not to fix" above
+  for why `build-implementer` only partially converts, and why that's a
+  real boundary rather than an oversight.
+
+  **A second, sharper-edged instance of the same root cause, found later
+  (specs 17/18):** it's not just that `status` can't answer for a reused
+  ref — `derivePrState`'s merged-PR-pair lookup will always find *some*
+  historical merged PR for `(build/{ref}, test/{ref})` once a ref has
+  been through more than one chunk, and unconditionally calls
+  `headSha("origin/test/{ref}")` to compare against it. Right after a
+  chunk's phase branches are cleared down and before the next chunk's
+  `test/{ref}` is pushed, that ref briefly doesn't exist at all, and the
+  call throws with no error handling — a genuine, previously-latent crash
+  that has nothing to do with MAG-46-specific reuse and would hit *any*
+  ref reused a second time after a full merge cycle (rare in normal
+  product use, guaranteed for this project's own self-hosted backlog).
+  Fixed by resolving the branch/parent arguments through the same
+  `resolveBranchRef` pattern already used elsewhere for exactly this
+  class of problem, plus a real, previously-undiscovered *silent*
+  version one level deeper: the same unresolved-ref pattern in
+  `hasCommitsBeyond`'s parent argument doesn't crash, it silently reports
+  `not-started` where the correct answer is `ready?`, because
+  `RealGitTool.hasCommitsBeyond` swallows a failed `rev-parse` into
+  `false` rather than throwing. Caught only by real e2e verification
+  against a genuine remote-only-ref fixture — see "Why I run e2e tests
+  even when everything is green" above; this is the same discipline,
+  just two levels deeper than the `isAncestor` case that originally
+  established it.
+- **The architect's own worktree discipline is a real, confirmed failure
+  mode, not just an agent one.** Branch-checkout exclusivity (above)
+  isn't only a risk when a *tool* moves the worktree — running the
+  architect's own `git` commands (a permission-config fix, a doc commit)
+  in the same worktree a live agent session is using can switch the
+  branch out from under it mid-turn. It happened: the architect switched
+  branches to prep an unrelated fix right as `test-writer` ran `git add
+  -A && git commit`, landing the commit on the wrong branch (parented off
+  `main` instead of `spec/{ref}`). Recovered by cherry-picking it back
+  once diagnosed via `git reflog`, but the fix that actually matters is
+  process, not recovery technique: the architect now uses one dedicated
+  worktree that no agent session ever runs in, full stop — see the Hard
+  Rules in `sequenced-spec-supervision-CLAUDE.md`.
+- **A custom tool silently running against the wrong directory looks
+  identical to a real environment quirk, for a very long time.** Both
+  `gate-check` and `task`'s custom-tool implementations called
+  `execFile("pnpm", [...])` with no `cwd`, so every call ran against the
+  OpenCode *server* process's own working directory (the main
+  detached-HEAD checkout), not the calling session's worktree — silently,
+  since the moment these tools were first deployed. The signal that this
+  was a real bug, not environmental fact, wasn't any one session hitting
+  it — it was the same "gate-check runs in the detached main checkout,
+  that's an environment quirk" message recurring across many independent
+  sessions over time, each one working around it rather than questioning
+  it. Fixed by reading the plugin SDK's own `context.directory` (which a
+  *third* custom tool in the same directory, `session-info.ts`, already
+  used correctly for `context.sessionID` — the working example was
+  sitting right next to the broken ones the whole time). Worth the
+  general lesson: a pattern several independent sessions each explain
+  away the same way is worth one session actually asking why, rather than
+  the explanation just propagating.
 
 ## What we decided *not* to fix, and why
 
@@ -149,6 +259,25 @@ on the tool's own output. A tool reporting `action: "forked"` is a claim;
   We're leaving it, because the whole thing collapses to one
   `task status --ref <ref>` call once the tool's derivation is
   trustworthy. Fixing it now is work thrown away.
+
+  **Resolved (MAG-40, once `task-phases` completed):** it did collapse,
+  almost exactly as predicted. `test-writer` and `quick-scaffolder`'s
+  start protocols are now built entirely on `task status`/`promote`/
+  `<ref>`-switch calls, no raw `git` branch navigation left.
+  `build-implementer` converts everything *except* the `ready/{ref}`-
+  specific mechanics, for a reason worth understanding rather than
+  reading as a leftover: the derivation pipeline models exactly four
+  phases (`spec`/`test`/`build`/`quick`) and has no concept of
+  `ready/{ref}` at all — that branch is a manual convention introduced
+  *after* the phase model was fixed, to work around `build/{ref}` being
+  branch-protected, and was never folded into it. So "the tool is
+  trustworthy now" turned out to be true for three of four phases and
+  quietly false for the fourth, in a way that only became visible once
+  someone actually tried to finish the collapse — see MAG-49, which
+  closes that specific remaining gap (`promote`'s missing
+  `build::ready -> pr-raised` action, the literal "test->build /
+  build->main ready hops belong to a later chunk" the code's own
+  fallthrough comment named from the start).
 - **`isAncestor`'s missing coverage.** Left as known debt for MAG-46-13
   to absorb, rather than backfilling immediately. Your call, and the
   right one for a first run through the process: "making mistakes in the
