@@ -54,18 +54,40 @@ For each friction point the live agent hits:
 
 **Works:** fix the config, then ask the user to click allow/always-allow
 on their own CLI. Their client still sees the prompt even when the API
-reports no pending permission.
+reports no pending permission. Still the only path for a *live* permission
+prompt the user needs to act on right now.
+
+**Also works, for a session already stuck/dead (correction — see
+below):** `POST /session/{id}/abort` (session-scoped — **not** the
+`/api/session/{id}/interrupt` form below, which is a different, broken
+endpoint). This genuinely cancels the in-flight turn server-side, and
+any message you'd already queued behind it (via `prompt_async`) then
+gets delivered and processed normally — no user action needed at all.
+Confirmed recovering a `build-implementer` session that had been frozen
+for ~76 minutes: a routine scratch-file write's `external_directory`
+check fell through to a catchall `ask` rule instead of the standing
+`/tmp*` allow rule it had matched every previous time in the same
+session, the permission request then expired server-side with nobody
+attached in time (the same dead-end described below), and the turn just
+sat there. `abort` unstuck it immediately; the queued follow-up message
+resumed the session and it finished the work normally. This is a real,
+headless-capable recovery path for the *not-currently-live* case — worth
+distinguishing sharply from the next paragraph, which is about a prompt
+the user needs to actually see and answer right now.
 
 **Does not work, confirmed repeatedly:**
 - `POST /api/session/{id}/permission/{requestID}/reply` — the request
   object expires server-side within seconds; every attempt 404s with
-  `PermissionNotFoundError`.
+  `PermissionNotFoundError`. This is why a *live* prompt still needs the
+  user's own CLI (previous section) — `abort` recovers a session that's
+  already stuck, it doesn't answer a pending ask.
 - `POST /api/session/{id}/interrupt` followed by a fresh `prompt_async`
   — returns `204`, but the stuck tool call keeps `state: "running"` and
   the new prompt just **queues behind it**. `/session/status` still
-  reports `busy`. Ask the user to halt the session explicitly on their
-  CLI; the already-queued prompt then picks up on its own — do not
-  resend it.
+  reports `busy`. This is a genuinely different endpoint from
+  `/session/{id}/abort` above (no `/api/` prefix, different verb
+  entirely) — don't conflate the two because their names are similar;
+  one is confirmed broken, the other confirmed working.
 
 ## Diagnosing a stalled session
 
@@ -85,7 +107,7 @@ similar and need different responses:
 
 | Symptom | Meaning | Action |
 |---|---|---|
-| Last part is a tool with `state: "running"`, no pending permission, timestamp minutes+ old | Orphaned call | Ask user to halt on CLI |
+| Last part is a tool with `state: "running"`, no pending permission, timestamp minutes+ old | Orphaned call — often a permission that expired server-side before anyone answered it (check `opencode.log` for `asking id=...` with nothing after it, at the matching timestamp, to confirm) | `POST /session/{id}/abort`, then resend the follow-up — headless, no user action needed (correction, see "Permission recovery" above) |
 | Pending entry in `/permission` | Live permission ask | Fix config, ask user to click allow |
 | Last message ends after `step-start` with no content | Dropped/truncated turn | Send the standard Resume prompt |
 
