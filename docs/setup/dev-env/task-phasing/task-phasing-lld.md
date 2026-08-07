@@ -1285,6 +1285,16 @@ group by `{ref}`
 For each `{ref}` output
 - `{ref}` phase: `{phase}` state: `{phase-state}` [`<--` if current task [`MISSMATCH` if branchMissMatch]]
 
+**Correction (MAG-46-16, real gap caught by test-writer at session
+start, closed by the architect before writing tests against it):** "list
+all branches in the repo" had no backing primitive — every `GitTool`
+method before this chunk takes a specific branch/ref name; nothing
+enumerates. The pre-sequencing review (`task-MAG-46.md`) missed this,
+checking only that spec 16's already-known deps (`deriveRepoState`/
+`branchExists`/`currentBranch`) were real, not that enumeration itself
+had a primitive to call. Added `GitTool.listBranches()` (§4.8) — this
+chunk's own new surface, not a stub-resolution chunk like MAG-46-13.
+
 #### 3.10.1 Human Readable Output
 ```bash
 data/workspaces/magpie-weaver$ pnpm task status --ref ABC-789
@@ -2012,6 +2022,21 @@ interface GitTool {
    * only by final cleanup once the Main Gate PR merges (§3.6); never for
    * any earlier transition. */
   deleteBranch(branch: string): Promise<void>;
+
+  /** `git for-each-ref --format='%(refname:short)' refs/heads
+   * refs/remotes/origin` — every local branch name (`test/{ref}`) and
+   * every remote-tracking branch name in its short form
+   * (`origin/test/{ref}`), in one call. **Added by MAG-46-16** — `list`
+   * (§3.10) is the sole caller: "list all branches in the repo" needs a
+   * real enumeration primitive, which nothing before this chunk required
+   * (every other command already knows the specific ref/branch it's
+   * asking about). The caller strips any `origin/` prefix and any
+   * `spec/`/`test/`/`build/`/`task/` phase prefix, matches what remains
+   * against `/^[A-Z]+-[0-9]+$/`, and groups both forms of the same
+   * branch under one `{ref}` entry — a ref reachable only via
+   * `origin/test/{ref}` (never checked out locally) is exactly as active
+   * as one with a local branch. */
+  listBranches(): Promise<string[]>;
 }
 ```
 
