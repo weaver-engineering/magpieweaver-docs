@@ -43,6 +43,33 @@ never silently overwritten without that check.
   `work-in-progress`/`ready` correctly the moment commits exist locally
   on `build/{ref}` — confirm this rather than re-deriving it; do not add
   a `ready`-phase concept anywhere.
+
+  **Correction (2026-08-07, architect pre-handoff review):** this
+  needed a real fix, not just confirmation — `derivePrState`'s
+  build-phase merged-PR branch decided between `merged-pending-pull`
+  and reaching `deriveState` at all via a plain `headSha` **equality**
+  check, which can't tell "local behind origin" from "local ahead with
+  its own commits" (exactly what reaching `ready?` for `build` requires)
+  from "diverged." Fixed in
+  [PR #155](https://github.com/weaver-engineering/magpie-weaver/pull/155),
+  landed as a quick-route commit ahead of `spec/MAG-49` — see
+  `task-MAG-49.md` §3's correction for the full derivation. **This is
+  merged into `main` before `spec/MAG-49` forks; you don't need to
+  touch `repo-state.ts` at all.**
+  `deriveState`/`resolveReady` genuinely are unmodified and unchanged —
+  only `derivePrState`'s routing into them was fixed. Build your
+  `build::ready -> pr-raised` fixtures assuming `deriveRepoState()`
+  already correctly returns `phase: "build", state: "ready"` (or
+  `"ready?"`/`"blocked"` via `resolveReady`) for a `build/{ref}` with
+  local commits beyond `origin/build/{ref}` — no mock of `derivePrState`
+  internals needed; inject the same `ExternalTools` shape every other
+  `*::ready` test file does, including a `git.isAncestor` double
+  configured for the "ahead, no drift" direction
+  (`isAncestor(origin/build/{ref}, build/{ref})` -> `true`) for §3.1/
+  §3.3/§3.5/§3.6's happy-path Givens. The three files PR #155 corrected
+  (`status/merged-pending-pull.test.ts`, `status/fix.test.ts`,
+  `promote/pulled-and-rebased.test.ts`) are the fixture pattern to
+  mirror for how this double should be shaped.
 - **No new `GitTool` primitives.** `createBranch(newBranch, from)`,
   `push(branch)`, `checkout(branch)`, and `github.createPR(base, head,
   opts)` already exist and are already used by `spec::ready -> forked`
@@ -58,20 +85,28 @@ never silently overwritten without that check.
   `build/{ref}`'s actual accumulated commits (not an empty branch off
   `origin/main`).
 - **Trunk drift reuses the existing rebase-forward mechanism wholesale**
-  (`task-MAG-49.md` §3, correction) — widen `lib/repo-state.ts`'s
-  trunk-drift trigger (`else if (phase === "spec" || phase === "quick")`)
-  to also cover `phase === "build"`, with `trunk = origin/build/{ref}`
-  for that case specifically (not `origin/main`, which is what `spec`/
-  `quick` check against). Once `taskStatus.rebase` is populated,
-  `promote`'s existing generic rebase-forward block (the one that already
-  handles `--confirm-rebase`, conflict/unexpected-commit-count outcomes,
-  force-push, and branch restoration) fires automatically — **do not**
-  write new rebase-handling code inside the `build::ready` branch itself;
-  it should never even be reached in the drifted case, since the generic
-  block runs first and returns its own result. §3.4 below is a
-  regression-style confirmation this reuse actually works for `build`,
-  not new `promote.ts` logic beyond the one-line phase-check widening in
-  `repo-state.ts`.
+  (`task-MAG-49.md` §3, correction). Once `taskStatus.rebase` is
+  populated, `promote`'s existing generic rebase-forward block (the one
+  that already handles `--confirm-rebase`, conflict/unexpected-commit-
+  count outcomes, force-push, and branch restoration) fires
+  automatically — **do not** write new rebase-handling code inside the
+  `build::ready` branch itself; it should never even be reached in the
+  drifted case, since the generic block runs first and returns its own
+  result. §3.4 below is a regression-style confirmation this reuse
+  actually works for `build`, not new `promote.ts` logic.
+
+  **Correction (2026-08-07, architect pre-handoff review):** the
+  original plan here (widen `deriveRepoState`'s bottom
+  `else if (phase === "spec" || phase === "quick")` block) was wrong —
+  that block is unreachable for `build` (`derivePhase()` never returns
+  `"build"`; the build phase's state is always decided earlier, inside
+  `derivePrState`). `taskStatus.rebase` for the build phase is now
+  populated *inside* `derivePrState`'s build-merged-PR branch instead,
+  as part of the same [PR #155](https://github.com/weaver-engineering/magpie-weaver/pull/155)
+  fix that resolved the derivation-reachability issue above — merged
+  into `main` before `spec/MAG-49` forks, nothing left to implement
+  here. `trunk` for that case is `origin/build/{ref}`, exactly as
+  originally planned; only the wiring location moved.
 - **A pre-existing `ready/{ref}` needs one safety check before touching
   it** (`task-MAG-49.md` §3, correction): `isAncestor("origin/ready/
   {ref}", "origin/main")`. If true (already merged), refuse — `success:
@@ -163,8 +198,16 @@ never silently overwritten without that check.
   * Local `build/AAA-123` has a commit beyond its own fork point, but
     `origin/build/AAA-123` has since advanced past that fork point too
     (a second Build Gate PR merged cleanly while this session was open)
-    — `git.isAncestor("origin/build/AAA-123", "build/AAA-123")` resolves
-    `false`
+    — genuine divergence, both directions of the ancestry check resolve
+    `false`: `git.isAncestor("origin/build/AAA-123", "build/AAA-123")`
+    and `git.isAncestor("build/AAA-123", "origin/build/AAA-123")`
+    (correction, 2026-08-07: `derivePrState` checks both directions to
+    tell divergence apart from plain "behind" — see `task-MAG-49.md` §3
+    and [PR #155](https://github.com/weaver-engineering/magpie-weaver/pull/155);
+    a fixture that leaves the second direction unmocked/defaulted true
+    would be read as "local behind origin, needs a plain pull"
+    (`merged-pending-pull`) rather than genuine divergence, and never
+    reach this test's intended rebase-forward path)
 * When - `pnpm task promote --confirm-rebase --json`
 * Then -
   * `git.rebase("build/AAA-123", "origin/build/AAA-123")` was called —
