@@ -1,7 +1,7 @@
 # Task MAG-49 — `promote`'s `build::ready -> pr-raised` action
 
-**State:** Not started
-**Phase:** spec
+**State:** Complete
+**Phase:** merged to main (2026-08-07) — [PR #155](https://github.com/weaver-engineering/magpie-weaver/pull/155) (quick-route prerequisite), [PR #156](https://github.com/weaver-engineering/magpie-weaver/pull/156) (test), [PR #157](https://github.com/weaver-engineering/magpie-weaver/pull/157) (build, Main Gate)
 **Component:** Development tooling (`task-phases`)
 **Depends on:** MAG-46 (`task-phases` itself — complete)
 **Related design docs:**
@@ -211,3 +211,35 @@ other three `*::ready` actions.
   `build::ready -> pr-raised` action, consuming that already-correct
   derivation exactly as `spec::ready -> forked` and
   `quick::ready -> pr-raised` already consume theirs.
+
+## 7. Outcome (2026-08-07)
+
+Task complete. Three PRs, in order:
+
+- [PR #155](https://github.com/weaver-engineering/magpie-weaver/pull/155) —
+  quick-route prerequisite, `task/MAG-49`. The `derivePrState` fix from
+  §3's correction, landed ahead of `spec/MAG-49` per this project's
+  discipline for existing-test fallout a chunk's own required behavior
+  surfaces. 148/148 `task-phases` tests passing.
+- [PR #156](https://github.com/weaver-engineering/magpie-weaver/pull/156) —
+  test phase, `test/MAG-49` -> `build/MAG-49`. All 6 spec behaviors
+  covered; architect review found and fixed an empty commit-message body
+  on the spec commit mid-session (an architect defect, not the agent's).
+- [PR #157](https://github.com/weaver-engineering/magpie-weaver/pull/157) —
+  build phase, `ready/MAG-49` -> `main` (Main Gate). Real e2e-verified
+  against a disposable ref in the sandbox repo: the happy path (creates
+  `ready/{ref}` from `build/{ref}`'s real accumulated commit, pushes,
+  raises a real PR, restores the starting branch) and the safety-critical
+  already-merged refusal (a `ready/{ref}` that's a genuine ancestor of
+  `main` is left completely untouched) both confirmed against real git
+  state, not just the mocked test suite.
+
+All phase branches (`spec/`, `test/`, `build/`, `ready/MAG-49`) cleared
+down locally and on origin after the Main Gate merge.
+
+**Open follow-up, not part of this chunk:** the user questioned during
+PR #156's review whether `promote`'s generic blocked-relay branch should
+really exit 0 — see `feedback`/`project` memory
+(`project_promote_blocked_exit_code_followup`, architect's own session
+memory) for the full reasoning. Cross-cutting across all four
+`*::ready` actions, deferred, no Linear ticket filed yet.
