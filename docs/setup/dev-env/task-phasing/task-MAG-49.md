@@ -70,6 +70,33 @@ other three `*::ready` actions.
   should already work unmodified once commits land locally on
   `build/{ref}`, but confirm rather than assume (see working spec doc's
   Deliverable Notes).
+
+  **Correction (2026-08-07, architect pre-handoff review):** it did
+  *not* already work. `derivePrState`'s build-phase merged-PR branch
+  (the code that decides between `merged-pending-pull` and this
+  chunk's target `ready?`/`ready` derivation) used a plain `headSha`
+  **equality** check on local vs `origin/build/{ref}`. That check
+  cannot distinguish "local trails origin" (needs a plain pull) from
+  "local carries its own commit(s) beyond origin" (build-implementer's
+  ordinary workflow once this chunk lands — exactly the state
+  `build::ready` needs to fire from) from "both sides moved
+  independently since a shared fork point" (genuine trunk drift). Since
+  any local commit makes the two heads differ, this permanently
+  misclassified the second case as `merged-pending-pull` — making the
+  build phase's `ready` state, and therefore this chunk's entire
+  deliverable, structurally unreachable. Fixed in
+  [PR #155](https://github.com/weaver-engineering/magpie-weaver/pull/155),
+  landed as a quick-route `task/MAG-49` commit ahead of `spec/MAG-49`:
+  replaced the equality check with a two-direction `git.isAncestor`
+  comparison (verified against real git, not just mocks, before
+  landing — see the PR description). Three already-merged test files'
+  `isAncestor` mocks defaulted to an unconditional `true`, corrected
+  with dated `**Correction:**` notes in each file's header
+  (`status/merged-pending-pull.test.ts` §3.2, `status/fix.test.ts`
+  §3.7, `promote/pulled-and-rebased.test.ts`'s shared default). No
+  existing test's semantic assertions changed — only fixture
+  direction-sensitivity. See the spec doc's own §2.1 correction for
+  what this means for `spec/MAG-49`'s own required behaviors.
 - **Trunk drift on the build phase** (`origin/build/{ref}` advancing
   after local `build/{ref}` was forked — e.g. a second Build Gate PR
   merging cleanly while build-implementer is mid-session). In scope
@@ -82,6 +109,24 @@ other three `*::ready` actions.
   force-push, restore branch) then just starts firing for `build` too —
   no new code in the `build::ready` action itself, and no new
   `GitTool` primitives.
+
+  **Correction (2026-08-07, architect pre-handoff review):** the
+  proposed widening location was wrong — `deriveRepoState`'s bottom
+  `else if (phase === "spec" || phase === "quick")` block is
+  unreachable for `build`, because `derivePhase()` (the function that
+  produces the `phase` value that block switches on) only recognizes
+  `test`/`spec`/`task` branch prefixes and never returns `"build"` at
+  all; the build phase's state is always decided earlier, inside
+  `derivePrState`'s own build-merged-PR branch. The trunk-drift trigger
+  is now populated *there* instead, as part of the same
+  [PR #155](https://github.com/weaver-engineering/magpie-weaver/pull/155)
+  fix above — the two-direction `isAncestor` check that resolves
+  ahead/behind naturally also resolves "neither is an ancestor of the
+  other" as the divergence case, surfacing `taskStatus.rebase` via the
+  same shape spec/quick already produce. The net effect described in
+  this bullet (drift resolved by the existing generic rebase-forward
+  handling, no new code in `build::ready` itself, no new `GitTool`
+  primitives) is unchanged — only the internal wiring location moved.
 - **A pre-existing `ready/{ref}`** (e.g. left over from the old raw-`git`
   workflow, or a previously-interrupted `promote` attempt). In scope
   (correction — see below): check whether `origin/ready/{ref}`'s current
@@ -141,10 +186,28 @@ other three `*::ready` actions.
 - Fail-then-pass: the new test(s) fail against the current
   `throw new Error("not implemented")` fallthrough in `promote.ts`, pass
   unmodified once implemented.
-- No existing test modified; no new `GitTool` primitives added.
+- No existing test modified *by this chunk's own test/build phases*; no
+  new `GitTool` primitives added. (Three existing test files' fixtures
+  were corrected by the [PR #155](https://github.com/weaver-engineering/magpie-weaver/pull/155)
+  prerequisite quick-route commit, raised (pending review/merge) ahead
+  of `spec/MAG-49` — see §3's correction. That's the established
+  pattern for existing-test fallout a chunk's own required behavior
+  surfaces; it isn't test-writer's or build-implementer's own work to
+  do.)
 - Real e2e verification against a disposable git fixture (bare origin +
   clone) before merge — same discipline as every prior `promote` action.
 
 ## 6. Notes For The Agent
 
-- None yet.
+- The `build` phase's `ready?`/`ready` derivation and its trunk-drift
+  detection are already fixed, in
+  [PR #155](https://github.com/weaver-engineering/magpie-weaver/pull/155)
+  (see §3's corrections) — merged into `main` before `spec/MAG-49` was
+  forked, so it's already part of your branch's history.
+  `lib/repo-state.ts`'s `derivePrState` already produces the correct
+  `TaskStatus` (including `rebase` when drifted) for every scenario
+  this chunk's acceptance criteria describe. You do not need to touch
+  `repo-state.ts` at all; your work is entirely in `promote.ts`'s new
+  `build::ready -> pr-raised` action, consuming that already-correct
+  derivation exactly as `spec::ready -> forked` and
+  `quick::ready -> pr-raised` already consume theirs.
