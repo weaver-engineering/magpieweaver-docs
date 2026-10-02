@@ -1,66 +1,92 @@
 name: MainGate
 
+# Main Gate: PR into `main`. Validates that the PR is exactly one commit,
+# titled with a task reference, carrying a non-empty body (WVR-231).
+#
+# While the architect reviews, a PR carries several commits and this gate is
+# expected to fail; its comment says why. On the go-ahead the agent rebases
+# onto origin/main, squashes to one commit and force-pushes, and the
+# architect merges with a merge commit (the only method main allows).
+#
+# Inline stop-gap, ported from dem-docs: WVR-232 replaces it with a
+# `gate-checks` docs-gate check shared by every docs repo.
+
 on:
   pull_request:
     branches:
       - main
 
+concurrency:
+  group: main-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   statuses: write
+  pull-requests: write
 
 jobs:
-  validate-commit:
+  validate-main-gate:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout PR head (full history)
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: validate
+      - name: Validate
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-            
-            // Determine commit SHA
-            const commit_sha = context.payload.pull_request.head.sha;
-            
-            // Get commit message
             const { execSync } = require('child_process');
-            const commit_message = execSync(`git log -1 --pretty=%B ${commit_sha}`, { encoding: 'utf8' });
-            const first_line = commit_message.split('\n')[0];
-            const commit_body = commit_message.split('\n').slice(1).filter(line => line.trim()).join('\n');
-            
-            console.log(`Latest commit title: ${first_line}`);
-            
-            let validation_passed = true;
-            let error_message = '';
-            
-            if (!/^[A-Z]+-[0-9]+/.test(first_line)) {
-              validation_passed = false;
-              error_message = `Commit title must start with task reference e.g. MAG-30. Received: ${first_line}`;
-            } else if (!commit_body) {
-              validation_passed = false;
-              error_message = 'Commit message must include a description after the title.';
+            const pr = context.payload.pull_request;
+            const sha = pr.head.sha;
+            const violations = [];
+
+            if (pr.commits !== 1) {
+              violations.push(
+                `PR must contain exactly one commit, found ${pr.commits}. ` +
+                `Expected during review; on the go-ahead, rebase onto origin/main and squash to one commit.`
+              );
             }
-            
-            // Report status
-            const state = validation_passed ? 'success' : 'failure';
-            const description = validation_passed 
-              ? 'Commit message validation passed' 
-              : 'Commit message validation failed';
-            
+
+            const message = execSync(`git log -1 --pretty=%B ${sha}`, { encoding: 'utf8' });
+            const title = message.split('\n')[0];
+            const body = message.split('\n').slice(1).filter((l) => l.trim()).join('\n');
+
+            core.info(`Commit title: ${title}`);
+            core.info(`Commit count: ${pr.commits}`);
+
+            if (!/^[A-Z]+-[0-9]+/.test(title)) {
+              violations.push(
+                `Commit title must start with a task reference e.g. WVR-231. Received: ${title}`
+              );
+            } else if (!body) {
+              violations.push('Commit message must include a description after the title.');
+            }
+
+            const passed = violations.length === 0;
+
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              sha: commit_sha,
-              state: state,
-              description: description,
-              context: 'MainGate'
+              sha,
+              state: passed ? 'success' : 'failure',
+              description: passed
+                ? 'All MainGate validations pass'
+                : 'MainGate validation failed',
+              context: 'MainGate',
             });
-            
-            if (!validation_passed) {
-              throw new Error(`Error: ${error_message}`);
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: passed ? 'All MainGate validations pass' : violations.join('\n'),
+            });
+
+            if (!passed) {
+              core.setFailed(violations.join('; '));
             }
