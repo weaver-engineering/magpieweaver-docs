@@ -1,0 +1,21 @@
+{
+  "name": "magpieweaver-docs",
+  "description": "Documentation for magpieweaver.",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@11.15.1",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "11.15.1",
+      "onFail": "download"
+    }
+  },
+  "scripts": {
+    "gate-check": "pnpm exec gate-checks"
+  },
+  "devDependencies": {
+    "@weaver-engineering/gate-checks": "^0.2.0"
+  }
+}

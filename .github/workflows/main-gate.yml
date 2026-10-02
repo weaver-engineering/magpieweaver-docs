@@ -1,15 +1,17 @@
 name: MainGate
 
-# Main Gate: PR into `main`. Validates that the PR is exactly one commit,
-# titled with a task reference, carrying a non-empty body (WVR-231).
+# Main Gate: PR into `main`. Thin wrapper around
+# `pnpm gate-check docs-gate` (@weaver-engineering/gate-checks) — the single
+# source of truth for the validation, shared by every docs repo: the PR
+# branch is {prefix}/{ref}, exactly one commit ahead of origin/main, main
+# hasn't advanced past it, and that commit's title starts with the task ref
+# and continues past it with a non-empty body. Nothing here re-derives it.
+# See @docs/standards/ci-cd-setup.md §2.1.
 #
 # While the architect reviews, a PR carries several commits and this gate is
 # expected to fail; its comment says why. On the go-ahead the agent rebases
 # onto origin/main, squashes to one commit and force-pushes, and the
 # architect merges with a merge commit (the only method main allows).
-#
-# Inline stop-gap, ported from dem-docs: WVR-232 replaces it with a
-# `gate-checks` docs-gate check shared by every docs repo.
 
 on:
   pull_request:
@@ -22,13 +24,15 @@ concurrency:
 
 permissions:
   contents: read
-  statuses: write
   pull-requests: write
+  statuses: write
+  packages: read
 
 jobs:
   validate-main-gate:
     runs-on: ubuntu-latest
-
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout PR head (full history)
         uses: actions/checkout@v4
@@ -36,57 +40,69 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Validate
-        uses: actions/github-script@v7
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          script: |
-            const { execSync } = require('child_process');
-            const pr = context.payload.pull_request;
-            const sha = pr.head.sha;
-            const violations = [];
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+          registry-url: 'https://npm.pkg.github.com'
 
-            if (pr.commits !== 1) {
-              violations.push(
-                `PR must contain exactly one commit, found ${pr.commits}. ` +
-                `Expected during review; on the go-ahead, rebase onto origin/main and squash to one commit.`
-              );
-            }
+      - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm install --frozen-lockfile
 
-            const message = execSync(`git log -1 --pretty=%B ${sha}`, { encoding: 'utf8' });
-            const title = message.split('\n')[0];
-            const body = message.split('\n').slice(1).filter((l) => l.trim()).join('\n');
+      - name: Run Main Gate
+        run: |
+          # pipefail so this step's own pass/fail genuinely reflects the
+          # gate-check's exit code (0 = passed, 1 = failed, 2 = invalid
+          # args), not tee's or node's — both always exit 0. Piped through
+          # tee so the raw JSON is still captured for the failure step, and
+          # rendered as YAML in this step's own log — the thing a human
+          # actually wants to read when this fails.
+          set -o pipefail
+          pnpm gate-check docs-gate \
+            --head-ref "${{ github.head_ref }}" \
+            --destination-branch "origin/${{ github.event.pull_request.base.ref }}" \
+            --json | tee result.json | node .github/scripts/json-to-yaml.mjs
 
-            core.info(`Commit title: ${title}`);
-            core.info(`Commit count: ${pr.commits}`);
+      - name: Upload gate-check artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-gate-result-${{ github.event.pull_request.number }}
+          path: result.json
+          retention-days: 30
 
-            if (!/^[A-Z]+-[0-9]+/.test(title)) {
-              violations.push(
-                `Commit title must start with a task reference e.g. WVR-231. Received: ${title}`
-              );
-            } else if (!body) {
-              violations.push('Commit message must include a description after the title.');
-            }
+      - name: Report success
+        if: success()
+        run: |
+          gh api "/repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }}" \
+            -f state=success -f context=MainGate -f description="All MainGate validations pass"
+          gh api "/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            -f body="All MainGate validations pass"
 
-            const passed = violations.length === 0;
+      - name: Report failure
+        if: failure()
+        run: |
+          gh api "/repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }}" \
+            -f state=failure -f context=MainGate -f description="MainGate validation failed"
 
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha,
-              state: passed ? 'success' : 'failure',
-              description: passed
-                ? 'All MainGate validations pass'
-                : 'MainGate validation failed',
-              context: 'MainGate',
-            });
+          if [ ! -f result.json ]; then
+            gh api "/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              -f body="MainGate failed before the check could run — see the workflow run for details."
+            exit 1
+          fi
 
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pr.number,
-              body: passed ? 'All MainGate validations pass' : violations.join('\n'),
-            });
-
-            if (!passed) {
-              core.setFailed(violations.join('; '));
-            }
+          # pnpm exec appends its own "[ELIFECYCLE] Command failed..." line
+          # to stdout whenever the wrapped command exits non-zero - only
+          # the first line of result.json is ever the actual gate result.
+          head -1 result.json > result-line.json
+          SUMMARY=$(node -e "console.log(JSON.parse(require('fs').readFileSync('result-line.json')).summary)")
+          VIOLATIONS=$(node -e "console.log(JSON.parse(require('fs').readFileSync('result-line.json')).violations.join('\n'))")
+          gh api "/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            -f body="$VIOLATIONS"
+          echo "::error::$SUMMARY"

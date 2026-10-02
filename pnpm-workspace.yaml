@@ -1,0 +1,2 @@
+minimumReleaseAgeExclude:
+  - '@weaver-engineering/gate-checks@0.2.0'
